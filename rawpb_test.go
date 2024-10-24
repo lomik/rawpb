@@ -148,6 +148,16 @@ func TestParse(t *testing.T) {
 		}),
 	))
 
+	// without callback
+	assert.NoError(withMain(
+		func(msg *test.Main) {
+			msg.SimpleUint64 = 1234
+			msg.SimpleFixed32 = 97663
+			msg.SimpleFixed64 = 12311
+			msg.SimpleString = "hello world"
+		},
+	))
+
 	assert.Panics(
 		func() {
 			withMain(func(msg *test.Main) {}, Uint64(-1, func(u uint64) error { return nil }))
