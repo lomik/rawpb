@@ -1,0 +1,58 @@
+syntax = "proto3";
+package test;
+
+option go_package = "github.com/pluto-metrics/rawpb/test";
+
+/*
+0	VARINT	int32, int64, uint32, uint64, sint32, sint64, bool, enum
+1	I64	fixed64, sfixed64, double
+2	LEN	string, bytes, embedded messages, packed repeated fields
+3	SGROUP	group start (deprecated)
+4	EGROUP	group end (deprecated)
+5	I32	fixed32, sfixed32, float
+*/
+
+message Main {
+    int32 simple_int32 = 1;
+    int64 simple_int64 = 2;
+    uint32 simple_uint32 = 3;
+    uint64 simple_uint64 = 4;
+    sint32 simple_sint32 = 5;
+    sint64 simple_sint64 = 6;
+    bool simple_bool = 7;
+    EnumType simple_enum = 8;
+    fixed64 simple_fixed64 = 9;
+    sfixed64 simple_sfixed64 = 10;
+    double simple_double = 11;
+    string simple_string = 12;
+    bytes simple_bytes = 13;
+    fixed32 simple_fixed32 = 14;
+    sfixed32 simple_sfixed32 = 15;
+    float simple_float = 16;
+
+    message Submessage {
+        string number = 1;
+        EnumType type = 2;
+    }
+
+    Submessage sub = 17;
+
+    repeated uint32 repeated_uint32 = 18 [packed=false];
+    repeated string repeated_string = 19 [packed=false];
+
+    repeated uint32 repeated_packed_uint32 = 20;
+    repeated float repeated_packed_float = 21;
+    repeated double repeated_packed_double = 22;
+
+    uint64 big_number_varint = 12313;
+    fixed32 big_number_fixed32 = 12314;
+    fixed64 big_number_fixed64 = 12315;
+    string big_number_string = 12316;
+}
+  
+enum EnumType {
+    ENUM_TYPE_UNSPECIFIED = 0;
+    ENUM_TYPE_VALUE1 = 1;
+    ENUM_TYPE_VALUE2 = 2;
+    ENUM_TYPE_VALUE3 = 3;
+}
