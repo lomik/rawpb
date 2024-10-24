@@ -18,7 +18,7 @@ type callbacks struct {
 	lst []field       // fields 1-128
 	mp  map[int]field // fields 129+
 
-	def struct { // defaults
+	unknown struct { // defaults
 		varint  func(num int, v uint64) error
 		fixed64 func(num int, v uint64) error
 		bytes   func(num int, v []byte) error
@@ -67,26 +67,26 @@ func fieldExpected(f field) string {
 }
 
 func (cb *callbacks) varintDefault(num int, v uint64) error {
-	if cb.def.varint != nil {
-		return cb.def.varint(num, v)
+	if cb.unknown.varint != nil {
+		return cb.unknown.varint(num, v)
 	}
 	return nil
 }
 func (cb *callbacks) fixed64Default(num int, v uint64) error {
-	if cb.def.fixed64 != nil {
-		return cb.def.fixed64(num, v)
+	if cb.unknown.fixed64 != nil {
+		return cb.unknown.fixed64(num, v)
 	}
 	return nil
 }
 func (cb *callbacks) fixed32Default(num int, v uint32) error {
-	if cb.def.fixed32 != nil {
-		return cb.def.fixed32(num, v)
+	if cb.unknown.fixed32 != nil {
+		return cb.unknown.fixed32(num, v)
 	}
 	return nil
 }
 func (cb *callbacks) bytesDefault(num int, v []byte) error {
-	if cb.def.bytes != nil {
-		return cb.def.bytes(num, v)
+	if cb.unknown.bytes != nil {
+		return cb.unknown.bytes(num, v)
 	}
 	return nil
 }

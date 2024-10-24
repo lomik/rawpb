@@ -82,17 +82,77 @@ func TestParse(t *testing.T) {
 
 	repeated(t, 22, Double, []float64{1, 43, 2.42, 123123}, &msg.RepeatedPackedDouble, &msg)
 
-	/*
-			    uint64 big_number_varint = 12313;
-		    uint64 big_number_fixed32 = 12314;
-		    uint64 big_number_fixed64 = 12315;
-		    uint64 big_number_string = 12315;
-	*/
-
+	// big field numbers
 	simple(t, 12313, Uint64, 123123, &msg.BigNumberVarint, &msg)
 	simple(t, 12314, Fixed32, 123123, &msg.BigNumberFixed32, &msg)
 	simple(t, 12315, Fixed64, 123123, &msg.BigNumberFixed64, &msg)
 	simple(t, 12316, String, "hello world", &msg.BigNumberString, &msg)
+
+	// unknown fields
+	assert.NoError(withMain(
+		func(msg *test.Main) {
+			msg.SimpleUint64 = 1234
+			msg.SimpleFixed32 = 97663
+			msg.SimpleFixed64 = 12311
+			msg.SimpleString = "hello world"
+		},
+		UnknownVarint(func(num int, v uint64) error {
+			assert.Equal(4, num)
+			assert.Equal(uint64(1234), v)
+			return nil
+		}),
+		UnknownFixed32(func(num int, v uint32) error {
+			assert.Equal(14, num)
+			assert.Equal(uint32(97663), v)
+			return nil
+		}),
+		UnknownFixed64(func(num int, v uint64) error {
+			assert.Equal(9, num)
+			assert.Equal(uint64(12311), v)
+			return nil
+		}),
+		UnknownBytes(func(num int, v []byte) error {
+			assert.Equal(12, num)
+			assert.Equal([]byte("hello world"), v)
+			return nil
+		}),
+	))
+
+	// big unknown fields
+	assert.NoError(withMain(
+		func(msg *test.Main) {
+			msg.BigNumberVarint = 1234
+			msg.BigNumberFixed32 = 97663
+			msg.BigNumberFixed64 = 12311
+			msg.BigNumberString = "hello world"
+		},
+		UnknownVarint(func(num int, v uint64) error {
+			assert.Equal(12313, num)
+			assert.Equal(uint64(1234), v)
+			return nil
+		}),
+		UnknownFixed32(func(num int, v uint32) error {
+			assert.Equal(12314, num)
+			assert.Equal(uint32(97663), v)
+			return nil
+		}),
+		UnknownFixed64(func(num int, v uint64) error {
+			assert.Equal(12315, num)
+			assert.Equal(uint64(12311), v)
+			return nil
+		}),
+		UnknownBytes(func(num int, v []byte) error {
+			assert.Equal(12316, num)
+			assert.Equal([]byte("hello world"), v)
+			return nil
+		}),
+	))
+
+	assert.Panics(
+		func() {
+			withMain(func(msg *test.Main) {}, Uint64(-1, func(u uint64) error { return nil }))
+		},
+	)
 
 }
 
