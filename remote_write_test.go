@@ -3,9 +3,14 @@ package rawpb
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"os"
 	"testing"
+
+	proto "github.com/gogo/protobuf/proto"
+	"github.com/prometheus/prometheus/prompb"
+	"github.com/stretchr/testify/assert"
 )
 
 func readFixture(name string) []byte {
@@ -24,86 +29,86 @@ func readFixture(name string) []byte {
 	return raw
 }
 
-// func TestRawPB(t *testing.T) {
-// 	assert := assert.New(t)
-// 	body := readFixture("34dd878af9d34cae46373dffa8df973ed94ab45be0ffa2fa0830bb1bb497ad90.gz")
+func TestRawPB(t *testing.T) {
+	assert := assert.New(t)
+	body := readFixture("34dd878af9d34cae46373dffa8df973ed94ab45be0ffa2fa0830bb1bb497ad90.gz")
 
-// 	var gogoMsg prompb.WriteRequest
-// 	assert.NoError(proto.Unmarshal(body, &gogoMsg))
+	var gogoMsg prompb.WriteRequest
+	assert.NoError(proto.Unmarshal(body, &gogoMsg))
 
-// 	var ts prompb.TimeSeries
+	var ts prompb.TimeSeries
 
-// 	index := 0
+	index := 0
 
-// 	r := New(
-// 		Begin(func() error {
-// 			// begin WriteRequest
-// 			return nil
-// 		}),
-// 		End(func() error {
-// 			// end WriteRequest
-// 			return nil
-// 		}),
-// 		Message(1, New( // TimeSeries
-// 			Begin(func() error {
-// 				// begin TimeSeries, reset
-// 				ts.Labels = ts.Labels[:0]
-// 				ts.Samples = ts.Samples[:0]
-// 				return nil
-// 			}),
-// 			End(func() error {
-// 				// do something with single TimeSeries
-// 				b1, err := proto.Marshal(&gogoMsg.Timeseries[index])
-// 				assert.NoError(err)
-// 				b2, err := proto.Marshal(&ts)
-// 				assert.NoError(err)
+	r := New(
+		Begin(func() error {
+			// begin WriteRequest
+			return nil
+		}),
+		End(func() error {
+			// end WriteRequest
+			return nil
+		}),
+		Message(1, New( // TimeSeries
+			Begin(func() error {
+				// begin TimeSeries, reset
+				ts.Labels = ts.Labels[:0]
+				ts.Samples = ts.Samples[:0]
+				return nil
+			}),
+			End(func() error {
+				// do something with single TimeSeries
+				b1, err := proto.Marshal(&gogoMsg.Timeseries[index])
+				assert.NoError(err)
+				b2, err := proto.Marshal(&ts)
+				assert.NoError(err)
 
-// 				if !assert.True(bytes.Equal(b1, b2)) {
-// 					fmt.Println("-", &gogoMsg.Timeseries[index])
-// 					fmt.Println("+", ts)
-// 				}
+				if !assert.True(bytes.Equal(b1, b2)) {
+					fmt.Println("-", &gogoMsg.Timeseries[index])
+					fmt.Println("+", ts)
+				}
 
-// 				index++
-// 				return nil
-// 			}),
-// 			Message(1, New( // Labels
-// 				Begin(func() error {
-// 					// append new Label
-// 					ts.Labels = append(ts.Labels, prompb.Label{})
-// 					return nil
-// 				}),
-// 				End(func() error { return nil }),
-// 				String(1, func(v string) error { // Name
-// 					ts.Labels[len(ts.Labels)-1].Name = v
-// 					return nil
-// 				}),
-// 				String(2, func(v string) error { // Value
-// 					ts.Labels[len(ts.Labels)-1].Value = v
-// 					return nil
-// 				}),
-// 			)),
-// 			Message(2, New( // Samples
-// 				Begin(func() error {
-// 					// append new Sample
-// 					ts.Samples = append(ts.Samples, prompb.Sample{})
-// 					return nil
-// 				}),
-// 				End(func() error { return nil }),
-// 				Double(1, func(v float64) error { // Value
-// 					ts.Samples[len(ts.Samples)-1].Value = v
-// 					return nil
-// 				}),
-// 				Int64(2, func(v int64) error { // Timestamp
-// 					ts.Samples[len(ts.Samples)-1].Timestamp = v
-// 					return nil
-// 				}),
-// 			)),
-// 		)),
-// 	)
+				index++
+				return nil
+			}),
+			Message(1, New( // Labels
+				Begin(func() error {
+					// append new Label
+					ts.Labels = append(ts.Labels, prompb.Label{})
+					return nil
+				}),
+				End(func() error { return nil }),
+				String(1, func(v string) error { // Name
+					ts.Labels[len(ts.Labels)-1].Name = v
+					return nil
+				}),
+				String(2, func(v string) error { // Value
+					ts.Labels[len(ts.Labels)-1].Value = v
+					return nil
+				}),
+			)),
+			Message(2, New( // Samples
+				Begin(func() error {
+					// append new Sample
+					ts.Samples = append(ts.Samples, prompb.Sample{})
+					return nil
+				}),
+				End(func() error { return nil }),
+				Double(1, func(v float64) error { // Value
+					ts.Samples[len(ts.Samples)-1].Value = v
+					return nil
+				}),
+				Int64(2, func(v int64) error { // Timestamp
+					ts.Samples[len(ts.Samples)-1].Timestamp = v
+					return nil
+				}),
+			)),
+		)),
+	)
 
-// 	err := r.Parse(body)
-// 	assert.NoError(err)
-// }
+	err := r.Parse(body)
+	assert.NoError(err)
+}
 
 func BenchmarkParse(b *testing.B) {
 	raw := readFixture("34dd878af9d34cae46373dffa8df973ed94ab45be0ffa2fa0830bb1bb497ad90.gz")
@@ -144,81 +149,81 @@ func BenchmarkParse(b *testing.B) {
 	}
 }
 
-// func BenchmarkGogoUnmarshalWriteRequest(b *testing.B) {
-// 	var req prompb.WriteRequest
-// 	raw := readFixture("34dd878af9d34cae46373dffa8df973ed94ab45be0ffa2fa0830bb1bb497ad90.gz")
-// 	b.ResetTimer()
-// 	for i := 0; i < b.N; i++ {
-// 		if err := proto.Unmarshal(raw, &req); err != nil {
-// 			panic(err)
-// 		}
-// 	}
-// }
+func BenchmarkGogoUnmarshalWriteRequest(b *testing.B) {
+	var req prompb.WriteRequest
+	raw := readFixture("34dd878af9d34cae46373dffa8df973ed94ab45be0ffa2fa0830bb1bb497ad90.gz")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := proto.Unmarshal(raw, &req); err != nil {
+			panic(err)
+		}
+	}
+}
 
-// func BenchmarkRawpbParseWriteRequest(b *testing.B) {
-// 	raw := readFixture("34dd878af9d34cae46373dffa8df973ed94ab45be0ffa2fa0830bb1bb497ad90.gz")
+func BenchmarkRawpbParseWriteRequest(b *testing.B) {
+	raw := readFixture("34dd878af9d34cae46373dffa8df973ed94ab45be0ffa2fa0830bb1bb497ad90.gz")
 
-// 	var ts prompb.TimeSeries
+	var ts prompb.TimeSeries
 
-// 	r := New(
-// 		Begin(func() error {
-// 			// begin WriteRequest
-// 			return nil
-// 		}),
-// 		End(func() error {
-// 			// end WriteRequest
-// 			return nil
-// 		}),
-// 		Message(1, New( // TimeSeries
-// 			Begin(func() error {
-// 				// begin TimeSeries, reset
-// 				ts.Labels = ts.Labels[:0]
-// 				ts.Samples = ts.Samples[:0]
-// 				return nil
-// 			}),
-// 			End(func() error {
-// 				// do something with single TimeSeries
-// 				return nil
-// 			}),
-// 			Message(1, New( // Labels
-// 				Begin(func() error {
-// 					// append new Label
-// 					ts.Labels = append(ts.Labels, prompb.Label{})
-// 					return nil
-// 				}),
-// 				End(func() error { return nil }),
-// 				String(1, func(v string) error { // Name
-// 					ts.Labels[len(ts.Labels)-1].Name = v
-// 					return nil
-// 				}),
-// 				String(2, func(v string) error { // Value
-// 					ts.Labels[len(ts.Labels)-1].Value = v
-// 					return nil
-// 				}),
-// 			)),
-// 			Message(2, New( // Samples
-// 				Begin(func() error {
-// 					// append new Sample
-// 					ts.Samples = append(ts.Samples, prompb.Sample{})
-// 					return nil
-// 				}),
-// 				End(func() error { return nil }),
-// 				Double(1, func(v float64) error { // Value
-// 					ts.Samples[len(ts.Samples)-1].Value = v
-// 					return nil
-// 				}),
-// 				Int64(2, func(v int64) error { // Timestamp
-// 					ts.Samples[len(ts.Samples)-1].Timestamp = v
-// 					return nil
-// 				}),
-// 			)),
-// 		)),
-// 	)
+	r := New(
+		Begin(func() error {
+			// begin WriteRequest
+			return nil
+		}),
+		End(func() error {
+			// end WriteRequest
+			return nil
+		}),
+		Message(1, New( // TimeSeries
+			Begin(func() error {
+				// begin TimeSeries, reset
+				ts.Labels = ts.Labels[:0]
+				ts.Samples = ts.Samples[:0]
+				return nil
+			}),
+			End(func() error {
+				// do something with single TimeSeries
+				return nil
+			}),
+			Message(1, New( // Labels
+				Begin(func() error {
+					// append new Label
+					ts.Labels = append(ts.Labels, prompb.Label{})
+					return nil
+				}),
+				End(func() error { return nil }),
+				String(1, func(v string) error { // Name
+					ts.Labels[len(ts.Labels)-1].Name = v
+					return nil
+				}),
+				String(2, func(v string) error { // Value
+					ts.Labels[len(ts.Labels)-1].Value = v
+					return nil
+				}),
+			)),
+			Message(2, New( // Samples
+				Begin(func() error {
+					// append new Sample
+					ts.Samples = append(ts.Samples, prompb.Sample{})
+					return nil
+				}),
+				End(func() error { return nil }),
+				Double(1, func(v float64) error { // Value
+					ts.Samples[len(ts.Samples)-1].Value = v
+					return nil
+				}),
+				Int64(2, func(v int64) error { // Timestamp
+					ts.Samples[len(ts.Samples)-1].Timestamp = v
+					return nil
+				}),
+			)),
+		)),
+	)
 
-// 	b.ResetTimer()
-// 	for i := 0; i < b.N; i++ {
-// 		if err := r.Parse(raw); err != nil {
-// 			panic(err)
-// 		}
-// 	}
-// }
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := r.Parse(raw); err != nil {
+			panic(err)
+		}
+	}
+}
