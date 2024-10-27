@@ -229,8 +229,16 @@ func simple[T any](t *testing.T, num int, opt func(num int, f func(T) error) Opt
 	assert.Equal(value, pv)
 
 	// and nil
-	p2 := New(opt(num, nil))
+	// check no default
+	unknown := 0
+	p2 := New(opt(num, nil),
+		UnknownBytes(func(num int, v []byte) error { unknown++; return nil }),
+		UnknownVarint(func(num int, v uint64) error { unknown++; return nil }),
+		UnknownFixed64(func(num int, v uint64) error { unknown++; return nil }),
+		UnknownFixed32(func(num int, v uint32) error { unknown++; return nil }),
+	)
 	assert.NoError(p2.Parse(body))
+	assert.Equal(0, unknown)
 }
 
 func repeated[T any](t *testing.T, num int, opt func(num int, f func(T) error) Option, value []T, field *[]T, msg *test.Main) {
@@ -255,8 +263,16 @@ func repeated[T any](t *testing.T, num int, opt func(num int, f func(T) error) O
 	assert.Equal(value, pv)
 
 	// and nil
-	p2 := New(opt(num, nil))
+	// check no default
+	unknown := 0
+	p2 := New(opt(num, nil),
+		UnknownBytes(func(num int, v []byte) error { unknown++; return nil }),
+		UnknownVarint(func(num int, v uint64) error { unknown++; return nil }),
+		UnknownFixed64(func(num int, v uint64) error { unknown++; return nil }),
+		UnknownFixed32(func(num int, v uint32) error { unknown++; return nil }),
+	)
 	assert.NoError(p2.Parse(body))
+	assert.Equal(0, unknown)
 
 }
 
