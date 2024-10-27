@@ -2,10 +2,9 @@ package rawpb
 
 import "errors"
 
-var ErrorTruncated = errors.New("Message truncated")
-var ErrorUnknownWireType = errors.New("Unknown wire type")
-var ErrorInvalidMessage = errors.New("Invalid message")
-var ErrorWrongWireType = errors.New("Wrong wire type")
+var ErrorTruncated = errors.New("message truncated")
+var ErrorInvalidMessage = errors.New("invalid message")
+var ErrorWrongWireType = errors.New("wrong wire type")
 
 type RawPB struct {
 	beginFunc func() error
@@ -21,10 +20,6 @@ func New(opts ...Option) *RawPB {
 	}
 
 	return r
-}
-
-func (pb *RawPB) setField(num int, f field) {
-	pb.schema.set(num, f)
 }
 
 func (pb *RawPB) Parse(body []byte) error {
@@ -78,7 +73,7 @@ func (pb *RawPB) Parse(body []byte) error {
 				return err
 			}
 		default:
-			return ErrorUnknownWireType
+			return ErrorWrongWireType
 		}
 	}
 

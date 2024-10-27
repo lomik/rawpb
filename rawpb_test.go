@@ -158,11 +158,49 @@ func TestParse(t *testing.T) {
 		},
 	))
 
+	// empty field in array
+	assert.NoError(withMain(
+		func(msg *test.Main) {
+			msg.SimpleInt32 = 1
+			msg.SimpleString = "hello world"
+		},
+		String(12, func(s string) error { return nil }),
+	))
+
+	// nil callback
+	assert.NoError(withMain(
+		func(msg *test.Main) {
+			msg.SimpleInt32 = 1
+			msg.SimpleString = "hello world"
+		},
+		String(12, nil),
+	))
+
+}
+
+func TestErrors(t *testing.T) {
+	assert := assert.New(t)
+
+	// natural number field
 	assert.Panics(
 		func() {
 			withMain(func(msg *test.Main) {}, Uint64(-1, func(u uint64) error { return nil }))
 		},
 	)
+
+	assert.Panics(
+		func() {
+			withMain(func(msg *test.Main) {}, Uint64(0, func(u uint64) error { return nil }))
+		},
+	)
+
+	// check type mismatch
+	assert.ErrorContains(withMain(
+		func(msg *test.Main) {
+			msg.SimpleInt32 = 42
+		},
+		Fixed64(1, func(u uint64) error { return nil }),
+	), "field 1: varint received, but fixed64 expected")
 
 }
 
@@ -190,6 +228,9 @@ func simple[T any](t *testing.T, num int, opt func(num int, f func(T) error) Opt
 	assert.Equal(1, cnt)
 	assert.Equal(value, pv)
 
+	// and nil
+	p2 := New(opt(num, nil))
+	assert.NoError(p2.Parse(body))
 }
 
 func repeated[T any](t *testing.T, num int, opt func(num int, f func(T) error) Option, value []T, field *[]T, msg *test.Main) {
@@ -213,6 +254,10 @@ func repeated[T any](t *testing.T, num int, opt func(num int, f func(T) error) O
 	assert.NoError(p.Parse(body))
 	assert.Equal(value, pv)
 
+	// and nil
+	p2 := New(opt(num, nil))
+	assert.NoError(p2.Parse(body))
+
 }
 
 func withMain(setter func(msg *test.Main), opts ...Option) error {
@@ -227,4 +272,16 @@ func withMain(setter func(msg *test.Main), opts ...Option) error {
 	p := New(opts...)
 
 	return p.Parse(body)
+}
+
+func withBody(setter func(msg *test.Main), parser func(p []byte) error) error {
+	msg := new(test.Main)
+	setter(msg)
+
+	body, err := proto.Marshal(msg)
+	if err != nil {
+		return err
+	}
+
+	return parser(body)
 }
