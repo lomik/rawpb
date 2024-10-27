@@ -202,6 +202,27 @@ func TestErrors(t *testing.T) {
 		Fixed64(1, func(u uint64) error { return nil }),
 	), "field 1: varint received, but fixed64 expected")
 
+	// check type mismatch
+	assert.ErrorContains(withMain(
+		func(msg *test.Main) {
+			msg.SimpleFixed32 = 42
+		},
+		Fixed64(14, func(u uint64) error { return nil }),
+	), "field 14: fixed32 received, but fixed64 expected")
+
+	assert.ErrorContains(withMain(
+		func(msg *test.Main) {
+			msg.SimpleString = "aaa"
+		},
+		Fixed64(12, func(u uint64) error { return nil }),
+	), "field 12: parse packed failed: message truncated")
+
+	assert.ErrorContains(withMain(
+		func(msg *test.Main) {
+			msg.SimpleFixed64 = 42
+		},
+		Fixed32(9, func(u uint32) error { return nil }),
+	), "field 9: fixed64 received, but fixed32 expected")
 }
 
 func simple[T any](t *testing.T, num int, opt func(num int, f func(T) error) Option, value T, field *T, msg *test.Main) {

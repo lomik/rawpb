@@ -110,31 +110,6 @@ func (c *callback) wireType() string {
 	return callbackTypeString[c.tp]
 }
 
-func (cb *callbacks) unknownVarint(num int, v uint64) error {
-	if cb.unknown.varint != nil {
-		return cb.unknown.varint(num, v)
-	}
-	return nil
-}
-func (cb *callbacks) unknownFixed64(num int, v uint64) error {
-	if cb.unknown.fixed64 != nil {
-		return cb.unknown.fixed64(num, v)
-	}
-	return nil
-}
-func (cb *callbacks) unknownFixed32(num int, v uint32) error {
-	if cb.unknown.fixed32 != nil {
-		return cb.unknown.fixed32(num, v)
-	}
-	return nil
-}
-func (cb *callbacks) unknownBytes(num int, v []byte) error {
-	if cb.unknown.bytes != nil {
-		return cb.unknown.bytes(num, v)
-	}
-	return nil
-}
-
 func (cb *callbacks) get(num int) callback {
 	if num > maxFieldListItems {
 		return cb.mp[num]
@@ -204,11 +179,6 @@ func (cb *callbacks) bytes(num int, v []byte) error {
 		return call(c.funcBytes, v)
 	}
 
-	/*
-		callbackTypeVarint  callbackType = 1
-		callbackTypeFixed64 callbackType = 2
-		callbackTypeFixed32 callbackType = 3
-	*/
 	// packed
 	switch c.tp {
 	case callbackTypeVarint:
@@ -216,7 +186,7 @@ func (cb *callbacks) bytes(num int, v []byte) error {
 		for r.next() {
 			vv, err := r.varint()
 			if err != nil {
-				return err
+				return fmt.Errorf("field %d: parse packed failed: %s", num, err.Error())
 			}
 			if err = call(c.funcUint64, vv); err != nil {
 				return err
@@ -227,7 +197,7 @@ func (cb *callbacks) bytes(num int, v []byte) error {
 		for r.next() {
 			vv, err := r.fixed64()
 			if err != nil {
-				return err
+				return fmt.Errorf("field %d: parse packed failed: %s", num, err.Error())
 			}
 			if err = call(c.funcUint64, vv); err != nil {
 				return err
@@ -238,7 +208,7 @@ func (cb *callbacks) bytes(num int, v []byte) error {
 		for r.next() {
 			vv, err := r.fixed32()
 			if err != nil {
-				return err
+				return fmt.Errorf("field %d: parse packed failed: %s", num, err.Error())
 			}
 			if err = call(c.funcUint32, vv); err != nil {
 				return err
