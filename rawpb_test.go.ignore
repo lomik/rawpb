@@ -1,6 +1,7 @@
 package rawpb
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
@@ -215,7 +216,7 @@ func TestErrors(t *testing.T) {
 			msg.SimpleString = "aaa"
 		},
 		Fixed64(12, func(u uint64) error { return nil }),
-	), "field 12: parse packed failed: message truncated")
+	), "message truncated")
 
 	assert.ErrorContains(withMain(
 		func(msg *test.Main) {
@@ -226,6 +227,12 @@ func TestErrors(t *testing.T) {
 }
 
 func simple[T any](t *testing.T, num int, opt func(num int, f func(T) error) Option, value T, field *T, msg *test.Main) {
+	simpleParse(t, num, opt, value, field, msg)
+	simpleRead(t, num, opt, value, field, msg, NewLinearAllocator())
+	simpleRead(t, num, opt, value, field, msg, nil)
+}
+
+func simpleParse[T any](t *testing.T, num int, opt func(num int, f func(T) error) Option, value T, field *T, msg *test.Main) {
 	assert := assert.New(t)
 	msg.Reset()
 
@@ -246,6 +253,45 @@ func simple[T any](t *testing.T, num int, opt func(num int, f func(T) error) Opt
 	}))
 
 	assert.NoError(p.Parse(body))
+	assert.Equal(1, cnt)
+	assert.Equal(value, pv)
+
+	// and nil
+	// check no default
+	unknown := 0
+	p2 := New(opt(num, nil),
+		UnknownBytes(func(num int, v []byte) error { unknown++; return nil }),
+		UnknownVarint(func(num int, v uint64) error { unknown++; return nil }),
+		UnknownFixed64(func(num int, v uint64) error { unknown++; return nil }),
+		UnknownFixed32(func(num int, v uint32) error { unknown++; return nil }),
+	)
+	assert.NoError(p2.Parse(body))
+	assert.Equal(0, unknown)
+}
+
+func simpleRead[T any](t *testing.T, num int, opt func(num int, f func(T) error) Option, value T, field *T, msg *test.Main, allocator Allocator) {
+	assert := assert.New(t)
+	msg.Reset()
+
+	*field = value
+
+	body, err := proto.Marshal(msg)
+	if !assert.NoError(err) {
+		return
+	}
+
+	cnt := 0
+	var pv T
+
+	p := New(opt(num, func(v T) error {
+		pv = v
+		cnt++
+		return nil
+	}))
+
+	r := bytes.NewReader(body)
+
+	assert.NoError(p.Read(r, allocator))
 	assert.Equal(1, cnt)
 	assert.Equal(value, pv)
 

@@ -29,12 +29,14 @@ func Fixed32(num int, f func(uint32) error) Option {
 	}
 }
 
-func Uint64(num int, f func(uint64) error) Option {
-	return Varint(num, f)
+func Message(num int, n *RawPB) Option {
+	return func(p *RawPB) {
+		p.schema.setMessage(num, n)
+	}
 }
 
-func Message(num int, n *RawPB) Option {
-	return Bytes(num, n.Parse)
+func Uint64(num int, f func(uint64) error) Option {
+	return Varint(num, f)
 }
 
 func unsafeString(b []byte) string {

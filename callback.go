@@ -19,6 +19,7 @@ const (
 	callbackTypeFixed64 callbackType = 2
 	callbackTypeFixed32 callbackType = 3
 	callbackTypeBytes   callbackType = 4
+	callbackTypeMessage callbackType = 5
 )
 
 var callbackTypeString = map[callbackType]string{
@@ -27,6 +28,7 @@ var callbackTypeString = map[callbackType]string{
 	callbackTypeFixed64: "fixed64",
 	callbackTypeFixed32: "fixed32",
 	callbackTypeBytes:   "length-delimited",
+	callbackTypeMessage: "length-delimited",
 }
 
 type callback struct {
@@ -34,6 +36,7 @@ type callback struct {
 	funcUint64 func(v uint64) error
 	funcUint32 func(v uint32) error
 	funcBytes  func(v []byte) error
+	message    *RawPB
 }
 
 type callbacks struct {
@@ -49,10 +52,6 @@ type callbacks struct {
 }
 
 var emptyCallback = callback{}
-
-func (c callback) isEmpty() bool {
-	return c.tp == callbackTypeNone
-}
 
 func (cb *callbacks) set(num int, c callback) {
 	if num < 1 {
@@ -99,6 +98,13 @@ func (cb *callbacks) setFixed32(num int, f func(v uint32) error) {
 	})
 }
 
+func (cb *callbacks) setMessage(num int, m *RawPB) {
+	cb.set(num, callback{
+		tp:      callbackTypeMessage,
+		message: m,
+	})
+}
+
 func (cb *callbacks) setBytes(num int, f func(v []byte) error) {
 	cb.set(num, callback{
 		tp:        callbackTypeBytes,
@@ -138,7 +144,7 @@ func callUnknown[T any](f func(num int, v T) error, num int, v T) error {
 
 func (cb *callbacks) varint(num int, v uint64) error {
 	c := cb.get(num)
-	if c.isEmpty() {
+	if c.tp == callbackTypeNone {
 		return callUnknown(cb.unknown.varint, num, v)
 	}
 	if c.tp == callbackTypeVarint {
@@ -149,7 +155,7 @@ func (cb *callbacks) varint(num int, v uint64) error {
 
 func (cb *callbacks) fixed64(num int, v uint64) error {
 	c := cb.get(num)
-	if c.isEmpty() {
+	if c.tp == callbackTypeNone {
 		return callUnknown(cb.unknown.fixed64, num, v)
 	}
 	if c.tp == callbackTypeFixed64 {
@@ -160,63 +166,11 @@ func (cb *callbacks) fixed64(num int, v uint64) error {
 
 func (cb *callbacks) fixed32(num int, v uint32) error {
 	c := cb.get(num)
-	if c.isEmpty() {
+	if c.tp == callbackTypeNone {
 		return callUnknown(cb.unknown.fixed32, num, v)
 	}
 	if c.tp == callbackTypeFixed32 {
 		return call(c.funcUint32, v)
 	}
 	return fmt.Errorf("field %d: fixed32 received, but %s expected", num, c.wireType())
-}
-
-func (cb *callbacks) bytes(num int, v []byte) error {
-	c := cb.get(num)
-	if c.isEmpty() {
-		return callUnknown(cb.unknown.bytes, num, v)
-	}
-
-	if c.tp == callbackTypeBytes {
-		return call(c.funcBytes, v)
-	}
-
-	// packed
-	switch c.tp {
-	case callbackTypeVarint:
-		r := newReader(v)
-		for r.next() {
-			vv, err := r.varint()
-			if err != nil {
-				return fmt.Errorf("field %d: parse packed failed: %s", num, err.Error())
-			}
-			if err = call(c.funcUint64, vv); err != nil {
-				return err
-			}
-		}
-	case callbackTypeFixed64:
-		r := newReader(v)
-		for r.next() {
-			vv, err := r.fixed64()
-			if err != nil {
-				return fmt.Errorf("field %d: parse packed failed: %s", num, err.Error())
-			}
-			if err = call(c.funcUint64, vv); err != nil {
-				return err
-			}
-		}
-	case callbackTypeFixed32:
-		r := newReader(v)
-		for r.next() {
-			vv, err := r.fixed32()
-			if err != nil {
-				return fmt.Errorf("field %d: parse packed failed: %s", num, err.Error())
-			}
-			if err = call(c.funcUint32, vv); err != nil {
-				return err
-			}
-		}
-	default:
-		panic("unknown callback type")
-	}
-
-	return nil
 }

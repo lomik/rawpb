@@ -37,3 +37,9 @@ func UnknownBytes(f func(num int, v []byte) error) Option {
 		p.schema.unknown.bytes = f
 	}
 }
+
+func Name(name string) Option {
+	return func(p *RawPB) {
+		p.name = name
+	}
+}

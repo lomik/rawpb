@@ -1,19 +1,21 @@
 package rawpb
 
-type reader struct {
+type readerBody struct {
 	body   []byte
 	offset int
 }
 
-func newReader(body []byte) *reader {
-	return &reader{body: body}
+func newReaderBody(body []byte) *readerBody {
+	return &readerBody{
+		body: body,
+	}
 }
 
-func (r *reader) varint() (uint64, error) {
+func (r *readerBody) varint() (uint64, error) {
 	var ret uint64
-	i := 0
+	i := uint64(0)
 	for r.next() {
-		ret += uint64(r.body[r.offset]&0x7f) << (7 * uint64(i))
+		ret += uint64(r.body[r.offset]&0x7f) << (7 * i)
 		if r.body[r.offset]&0x80 == 0 { // last byte of varint
 			r.offset++
 			return ret, nil
@@ -24,11 +26,11 @@ func (r *reader) varint() (uint64, error) {
 	return ret, ErrorTruncated
 }
 
-func (r *reader) next() bool {
+func (r *readerBody) next() bool {
 	return r.offset < len(r.body)
 }
 
-func (r *reader) bytes(n int) ([]byte, error) {
+func (r *readerBody) bytes(n int) ([]byte, error) {
 	if r.offset+n > len(r.body) {
 		return nil, ErrorTruncated
 	}
@@ -37,7 +39,7 @@ func (r *reader) bytes(n int) ([]byte, error) {
 	return v, nil
 }
 
-func (r *reader) lengthDelimited() ([]byte, error) {
+func (r *readerBody) lengthDelimited() ([]byte, error) {
 	l, err := r.varint()
 	if err != nil {
 		return nil, err
@@ -45,7 +47,7 @@ func (r *reader) lengthDelimited() ([]byte, error) {
 	return r.bytes(int(l))
 }
 
-func (r *reader) fixed64() (uint64, error) {
+func (r *readerBody) fixed64() (uint64, error) {
 	p, err := r.bytes(8)
 	if err != nil {
 		return 0, err
@@ -55,7 +57,7 @@ func (r *reader) fixed64() (uint64, error) {
 	return u, nil
 }
 
-func (r *reader) fixed32() (uint32, error) {
+func (r *readerBody) fixed32() (uint32, error) {
 	p, err := r.bytes(4)
 	if err != nil {
 		return 0, err

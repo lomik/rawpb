@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	proto "github.com/gogo/protobuf/proto"
+	"github.com/pkg/errors"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/stretchr/testify/assert"
 )
@@ -166,6 +167,7 @@ func BenchmarkRawpbParseWriteRequest(b *testing.B) {
 	var ts prompb.TimeSeries
 
 	r := New(
+		Name("WriteRequest"),
 		Begin(func() error {
 			// begin WriteRequest
 			return nil
@@ -175,6 +177,7 @@ func BenchmarkRawpbParseWriteRequest(b *testing.B) {
 			return nil
 		}),
 		Message(1, New( // TimeSeries
+			Name("TimeSeries"),
 			Begin(func() error {
 				// begin TimeSeries, reset
 				ts.Labels = ts.Labels[:0]
@@ -186,6 +189,7 @@ func BenchmarkRawpbParseWriteRequest(b *testing.B) {
 				return nil
 			}),
 			Message(1, New( // Labels
+				Name("Labels"),
 				Begin(func() error {
 					// append new Label
 					ts.Labels = append(ts.Labels, prompb.Label{})
@@ -202,6 +206,7 @@ func BenchmarkRawpbParseWriteRequest(b *testing.B) {
 				}),
 			)),
 			Message(2, New( // Samples
+				Name("Samples"),
 				Begin(func() error {
 					// append new Sample
 					ts.Samples = append(ts.Samples, prompb.Sample{})
@@ -225,5 +230,87 @@ func BenchmarkRawpbParseWriteRequest(b *testing.B) {
 		if err := r.Parse(raw); err != nil {
 			panic(err)
 		}
+	}
+}
+
+type stackTracer interface {
+	StackTrace() errors.StackTrace
+}
+
+func BenchmarkRawpbReadWriteRequest(b *testing.B) {
+	raw := readFixture("34dd878af9d34cae46373dffa8df973ed94ab45be0ffa2fa0830bb1bb497ad90.gz")
+
+	var ts prompb.TimeSeries
+	alloc := NewLinearAllocator()
+
+	r := New(
+		Name("WriteRequest"),
+		Begin(func() error {
+			// begin WriteRequest
+			return nil
+		}),
+		End(func() error {
+			// end WriteRequest
+			return nil
+		}),
+		Message(1, New( // TimeSeries
+			Name("TimeSeries"),
+			Begin(func() error {
+				// begin TimeSeries, reset
+				alloc.Reset()
+				ts.Labels = ts.Labels[:0]
+				ts.Samples = ts.Samples[:0]
+				return nil
+			}),
+			End(func() error {
+				// do something with single TimeSeries
+				return nil
+			}),
+			Message(1, New( // Labels
+				Name("Labels"),
+				Begin(func() error {
+					// append new Label
+					ts.Labels = append(ts.Labels, prompb.Label{})
+					return nil
+				}),
+				End(func() error { return nil }),
+				String(1, func(v string) error { // Name
+					ts.Labels[len(ts.Labels)-1].Name = v
+					return nil
+				}),
+				String(2, func(v string) error { // Value
+					ts.Labels[len(ts.Labels)-1].Value = v
+					return nil
+				}),
+			)),
+			Message(2, New( // Samples
+				Name("Samples"),
+				Begin(func() error {
+					// append new Sample
+					ts.Samples = append(ts.Samples, prompb.Sample{})
+					return nil
+				}),
+				End(func() error { return nil }),
+				Double(1, func(v float64) error { // Value
+					ts.Samples[len(ts.Samples)-1].Value = v
+					return nil
+				}),
+				Int64(2, func(v int64) error { // Timestamp
+					ts.Samples[len(ts.Samples)-1].Timestamp = v
+					return nil
+				}),
+			)),
+		)),
+	)
+
+	reader := bytes.NewReader(raw)
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		alloc.Reset()
+		if err := r.Read(reader, alloc); err != nil {
+			panic(err)
+		}
+		reader.Reset(raw)
 	}
 }
