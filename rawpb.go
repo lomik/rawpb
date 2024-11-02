@@ -143,10 +143,14 @@ func (pb *RawPB) doRead(r *readerLimit) error {
 				if currentLimit < l {
 					return pb.wrapError(num, ErrorTruncated)
 				}
-				for r.next() {
-					vv, err := r.varint()
+				r.limit = l
+				for {
+					vv, breakLoop, err := r.varintOrBreak()
 					if err != nil {
 						return pb.wrapError(num, err)
+					}
+					if breakLoop {
+						break
 					}
 					if err = call(c.funcUint64, vv); err != nil {
 						return pb.wrapError(num, err)
@@ -159,6 +163,7 @@ func (pb *RawPB) doRead(r *readerLimit) error {
 				if currentLimit < l {
 					return pb.wrapError(num, ErrorTruncated)
 				}
+				r.limit = l
 				for r.next() {
 					vv, err := r.fixed64()
 					if err != nil {
@@ -175,6 +180,7 @@ func (pb *RawPB) doRead(r *readerLimit) error {
 				if currentLimit < l {
 					return pb.wrapError(num, ErrorTruncated)
 				}
+				r.limit = l
 				for r.next() {
 					vv, err := r.fixed32()
 					if err != nil {

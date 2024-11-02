@@ -2,6 +2,7 @@ package rawpb
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
@@ -90,34 +91,6 @@ func TestParse(t *testing.T) {
 	simple(t, 12316, String, "hello world", &msg.BigNumberString, &msg)
 
 	// unknown fields
-	assert.NoError(withMain(
-		func(msg *test.Main) {
-			msg.SimpleUint64 = 1234
-			msg.SimpleFixed32 = 97663
-			msg.SimpleFixed64 = 12311
-			msg.SimpleString = "hello world"
-		},
-		UnknownVarint(func(num int, v uint64) error {
-			assert.Equal(4, num)
-			assert.Equal(uint64(1234), v)
-			return nil
-		}),
-		UnknownFixed32(func(num int, v uint32) error {
-			assert.Equal(14, num)
-			assert.Equal(uint32(97663), v)
-			return nil
-		}),
-		UnknownFixed64(func(num int, v uint64) error {
-			assert.Equal(9, num)
-			assert.Equal(uint64(12311), v)
-			return nil
-		}),
-		UnknownBytes(func(num int, v []byte) error {
-			assert.Equal(12, num)
-			assert.Equal([]byte("hello world"), v)
-			return nil
-		}),
-	))
 
 	// big unknown fields
 	assert.NoError(withMain(
@@ -179,6 +152,54 @@ func TestParse(t *testing.T) {
 
 }
 
+func TestUnknown(t *testing.T) {
+	do(t, "unknown", func(t *testing.T, parseFunc func(proto.Message, *RawPB) error) {
+		assert := assert.New(t)
+
+		msg := &test.Main{
+			SimpleUint64:  1234,
+			SimpleFixed32: 97663,
+			SimpleFixed64: 12311,
+			SimpleString:  "hello world",
+		}
+
+		vint := make([]uint64, 0)
+		f32 := make([]uint32, 0)
+		f64 := make([]uint64, 0)
+		bt := make([][]byte, 0)
+
+		p := New(
+			UnknownVarint(func(num int, v uint64) error {
+				assert.Equal(4, num)
+				vint = append(vint, v)
+				return nil
+			}),
+			UnknownFixed32(func(num int, v uint32) error {
+				assert.Equal(14, num)
+				f32 = append(f32, v)
+				return nil
+			}),
+			UnknownFixed64(func(num int, v uint64) error {
+				assert.Equal(9, num)
+				f64 = append(f64, v)
+				return nil
+			}),
+			UnknownBytes(func(num int, v []byte) error {
+				assert.Equal(12, num)
+				bt = append(bt, v)
+				return nil
+			}),
+		)
+
+		assert.NoError(parseFunc(msg, p))
+
+		assert.Equal([]uint64{msg.SimpleUint64}, vint)
+		assert.Equal([]uint32{msg.SimpleFixed32}, f32)
+		assert.Equal([]uint64{msg.SimpleFixed64}, f64)
+		assert.Equal([][]byte{[]byte(msg.SimpleString)}, bt)
+	})
+}
+
 func TestErrors(t *testing.T) {
 	assert := assert.New(t)
 
@@ -227,120 +248,118 @@ func TestErrors(t *testing.T) {
 }
 
 func simple[T any](t *testing.T, num int, opt func(num int, f func(T) error) Option, value T, field *T, msg *test.Main) {
-	simpleParse(t, num, opt, value, field, msg)
-	simpleRead(t, num, opt, value, field, msg, NewLinearAllocator())
-	simpleRead(t, num, opt, value, field, msg, nil)
-}
+	do(t, fmt.Sprintf("simple field %d", num), func(t *testing.T, parseFunc func(proto.Message, *RawPB) error) {
+		assert := assert.New(t)
 
-func simpleParse[T any](t *testing.T, num int, opt func(num int, f func(T) error) Option, value T, field *T, msg *test.Main) {
-	assert := assert.New(t)
-	msg.Reset()
+		msg.Reset()
+		*field = value
 
-	*field = value
+		cnt := 0
+		var pv T
 
-	body, err := proto.Marshal(msg)
-	if !assert.NoError(err) {
-		return
-	}
+		p := New(opt(num, func(v T) error {
+			pv = v
+			cnt++
+			return nil
+		}))
 
-	cnt := 0
-	var pv T
+		assert.NoError(parseFunc(msg, p))
+		assert.Equal(1, cnt)
+		assert.Equal(value, pv)
+	})
 
-	p := New(opt(num, func(v T) error {
-		pv = v
-		cnt++
-		return nil
-	}))
+	do(t, fmt.Sprintf("simple field %d with nil callback", num), func(t *testing.T, parseFunc func(proto.Message, *RawPB) error) {
+		assert := assert.New(t)
 
-	assert.NoError(p.Parse(body))
-	assert.Equal(1, cnt)
-	assert.Equal(value, pv)
+		msg.Reset()
+		*field = value
 
-	// and nil
-	// check no default
-	unknown := 0
-	p2 := New(opt(num, nil),
-		UnknownBytes(func(num int, v []byte) error { unknown++; return nil }),
-		UnknownVarint(func(num int, v uint64) error { unknown++; return nil }),
-		UnknownFixed64(func(num int, v uint64) error { unknown++; return nil }),
-		UnknownFixed32(func(num int, v uint32) error { unknown++; return nil }),
-	)
-	assert.NoError(p2.Parse(body))
-	assert.Equal(0, unknown)
-}
-
-func simpleRead[T any](t *testing.T, num int, opt func(num int, f func(T) error) Option, value T, field *T, msg *test.Main, allocator Allocator) {
-	assert := assert.New(t)
-	msg.Reset()
-
-	*field = value
-
-	body, err := proto.Marshal(msg)
-	if !assert.NoError(err) {
-		return
-	}
-
-	cnt := 0
-	var pv T
-
-	p := New(opt(num, func(v T) error {
-		pv = v
-		cnt++
-		return nil
-	}))
-
-	r := bytes.NewReader(body)
-
-	assert.NoError(p.Read(r, allocator))
-	assert.Equal(1, cnt)
-	assert.Equal(value, pv)
-
-	// and nil
-	// check no default
-	unknown := 0
-	p2 := New(opt(num, nil),
-		UnknownBytes(func(num int, v []byte) error { unknown++; return nil }),
-		UnknownVarint(func(num int, v uint64) error { unknown++; return nil }),
-		UnknownFixed64(func(num int, v uint64) error { unknown++; return nil }),
-		UnknownFixed32(func(num int, v uint32) error { unknown++; return nil }),
-	)
-	assert.NoError(p2.Parse(body))
-	assert.Equal(0, unknown)
+		unknown := 0
+		p := New(opt(num, nil),
+			UnknownBytes(func(num int, v []byte) error { unknown++; return nil }),
+			UnknownVarint(func(num int, v uint64) error { unknown++; return nil }),
+			UnknownFixed64(func(num int, v uint64) error { unknown++; return nil }),
+			UnknownFixed32(func(num int, v uint32) error { unknown++; return nil }),
+		)
+		assert.NoError(parseFunc(msg, p))
+		assert.Equal(0, unknown)
+	})
 }
 
 func repeated[T any](t *testing.T, num int, opt func(num int, f func(T) error) Option, value []T, field *[]T, msg *test.Main) {
-	assert := assert.New(t)
-	msg.Reset()
+	do(t, fmt.Sprintf("simple field %d", num), func(t *testing.T, parseFunc func(proto.Message, *RawPB) error) {
+		assert := assert.New(t)
 
-	*field = value
+		msg.Reset()
+		*field = value
 
-	body, err := proto.Marshal(msg)
-	if !assert.NoError(err) {
-		return
-	}
+		cnt := 0
+		var pv []T
 
-	var pv []T
+		p := New(opt(num, func(v T) error {
+			pv = append(pv, v)
+			cnt++
+			return nil
+		}))
 
-	p := New(opt(num, func(v T) error {
-		pv = append(pv, v)
-		return nil
-	}))
+		assert.NoError(parseFunc(msg, p))
+		assert.Equal(len(value), cnt)
+		assert.Equal(value, pv)
+	})
 
-	assert.NoError(p.Parse(body))
-	assert.Equal(value, pv)
+	do(t, fmt.Sprintf("simple field %d with nil callback", num), func(t *testing.T, parseFunc func(proto.Message, *RawPB) error) {
+		assert := assert.New(t)
 
-	// and nil
-	// check no default
-	unknown := 0
-	p2 := New(opt(num, nil),
-		UnknownBytes(func(num int, v []byte) error { unknown++; return nil }),
-		UnknownVarint(func(num int, v uint64) error { unknown++; return nil }),
-		UnknownFixed64(func(num int, v uint64) error { unknown++; return nil }),
-		UnknownFixed32(func(num int, v uint32) error { unknown++; return nil }),
-	)
-	assert.NoError(p2.Parse(body))
-	assert.Equal(0, unknown)
+		msg.Reset()
+		*field = value
 
+		unknown := 0
+		p := New(opt(num, nil),
+			UnknownBytes(func(num int, v []byte) error { unknown++; return nil }),
+			UnknownVarint(func(num int, v uint64) error { unknown++; return nil }),
+			UnknownFixed64(func(num int, v uint64) error { unknown++; return nil }),
+			UnknownFixed32(func(num int, v uint32) error { unknown++; return nil }),
+		)
+		assert.NoError(parseFunc(msg, p))
+		assert.Equal(0, unknown)
+	})
+}
+
+func do(t *testing.T, name string, cb func(t *testing.T, parseFunc func(proto.Message, *RawPB) error)) {
+	t.Run(fmt.Sprintf("%s/Parse", name), func(t *testing.T) {
+		f := func(m proto.Message, p *RawPB) error {
+			body, err := proto.Marshal(m)
+			if !assert.NoError(t, err, name) {
+				return err
+			}
+			return p.Parse(body)
+		}
+		cb(t, f)
+	})
+
+	t.Run(fmt.Sprintf("%s/Read_HeapAllocator", name), func(t *testing.T) {
+		f := func(m proto.Message, p *RawPB) error {
+			body, err := proto.Marshal(m)
+			if !assert.NoError(t, err, name) {
+				return err
+			}
+			b := bytes.NewReader(body)
+			return p.Read(b, nil)
+		}
+		cb(t, f)
+	})
+
+	t.Run(fmt.Sprintf("%s/Read_LinearAllocator", name), func(t *testing.T) {
+		f := func(m proto.Message, p *RawPB) error {
+			body, err := proto.Marshal(m)
+			if !assert.NoError(t, err, name) {
+				return err
+			}
+			b := bytes.NewReader(body)
+			return p.Read(b, NewLinearAllocator())
+		}
+		cb(t, f)
+	})
 }
 
 func withMain(setter func(msg *test.Main), opts ...Option) error {
@@ -355,16 +374,4 @@ func withMain(setter func(msg *test.Main), opts ...Option) error {
 	p := New(opts...)
 
 	return p.Parse(body)
-}
-
-func withBody(setter func(msg *test.Main), parser func(p []byte) error) error {
-	msg := new(test.Main)
-	setter(msg)
-
-	body, err := proto.Marshal(msg)
-	if err != nil {
-		return err
-	}
-
-	return parser(body)
 }

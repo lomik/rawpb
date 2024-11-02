@@ -32,7 +32,7 @@ func (r *readerLimit) varintOrBreak() (uint64, bool, error) {
 	for {
 		if r.limit == 0 {
 			if i == 0 {
-				// can't read first by. stream ended
+				// can't read first byte. stream ended
 				return 0, true, nil
 			}
 			return ret, true, ErrorTruncated
@@ -40,7 +40,7 @@ func (r *readerLimit) varintOrBreak() (uint64, bool, error) {
 		b, err = r.w.ReadByte()
 		if err != nil {
 			if i == 0 && err == io.EOF {
-				// can't read first by. stream ended
+				// can't read first byte. stream ended
 				return 0, true, nil
 			}
 			return ret, true, ErrorTruncated

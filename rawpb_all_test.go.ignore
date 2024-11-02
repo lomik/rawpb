@@ -1,0 +1,140 @@
+package rawpb
+
+import (
+	"testing"
+
+	"github.com/gogo/protobuf/proto"
+	"github.com/pluto-metrics/rawpb/test"
+	"github.com/stretchr/testify/assert"
+)
+
+type DeferT struct {
+	cb []func()
+}
+
+func NewDefer() *DeferT {
+	return &DeferT{}
+}
+
+func (d *DeferT) Defer(c func()) {
+	d.cb = append(d.cb, c)
+}
+
+func (d *DeferT) Run() {
+	for _, c := range d.cb {
+		c()
+	}
+}
+
+func onceEq[T any](t *testing.T, d *DeferT, expected T) func(v T) error {
+	assert := assert.New(t)
+
+	calls := 0
+
+	f := func(actual T) error {
+		calls += 1
+		assert.Equal(expected, actual)
+
+		return nil
+	}
+
+	d.Defer(func() {
+		assert.Equal(1, calls)
+	})
+
+	return f
+}
+
+func repeatedEq[T any](t *testing.T, d *DeferT, expected []T) func(v T) error {
+	assert := assert.New(t)
+
+	actual := []T{}
+
+	f := func(v T) error {
+		actual = append(actual, v)
+		return nil
+	}
+
+	d.Defer(func() {
+		assert.Equal(expected, actual)
+	})
+
+	return f
+}
+
+func TestAll(t *testing.T) {
+	do(t, "all fields", func(t *testing.T, parseFunc func(proto.Message, *RawPB) error) {
+		assert := assert.New(t)
+		d := NewDefer()
+
+		msg := &test.Main{
+			SimpleInt32:    -52,
+			SimpleInt64:    -42,
+			SimpleUint32:   42,
+			SimpleUint64:   21332,
+			SimpleSint32:   -123123,
+			SimpleSint64:   -145454,
+			SimpleBool:     true,
+			SimpleEnum:     test.EnumType_ENUM_TYPE_VALUE2,
+			SimpleFixed64:  123,
+			SimpleSfixed64: -1123,
+			SimpleDouble:   0.42,
+			SimpleString:   "hello world",
+			SimpleBytes:    []byte("asdasdads a da"),
+			SimpleFixed32:  234,
+			SimpleSfixed32: -2324,
+			SimpleFloat:    -234.34,
+			Sub: &test.Main_Submessage{
+				Number: "42",
+			},
+			RepeatedUint32:       []uint32{343, 245, 112},
+			RepeatedString:       []string{"", "hello world", "", "xxxx", ""},
+			RepeatedPackedUint32: []uint32{234, 654, 333},
+			RepeatedPackedFloat:  []float32{343.33, -6653.3, 555.4},
+			RepeatedPackedDouble: []float64{-45.55, 445, 755},
+			BigNumberVarint:      234234,
+			BigNumberFixed32:     6555,
+			BigNumberFixed64:     3456346,
+			BigNumberString:      "hello",
+		}
+
+		p := New(
+			Int32(1, onceEq(t, d, msg.SimpleInt32)),
+			Int64(2, onceEq(t, d, msg.SimpleInt64)),
+			Uint32(3, onceEq(t, d, msg.SimpleUint32)),
+			Uint64(4, onceEq(t, d, msg.SimpleUint64)),
+			Sint32(5, onceEq(t, d, msg.SimpleSint32)),
+			Sint64(6, onceEq(t, d, msg.SimpleSint64)),
+			Bool(7, onceEq(t, d, msg.SimpleBool)),
+			Enum(8, onceEq(t, d, int32(msg.SimpleEnum))),
+			Fixed64(9, onceEq(t, d, msg.SimpleFixed64)),
+			Sfixed64(10, onceEq(t, d, msg.SimpleSfixed64)),
+			Double(11, onceEq(t, d, msg.SimpleDouble)),
+			String(12, onceEq(t, d, msg.SimpleString)),
+			Bytes(13, onceEq(t, d, msg.SimpleBytes)),
+			Fixed32(14, onceEq(t, d, msg.SimpleFixed32)),
+			Sfixed32(15, onceEq(t, d, msg.SimpleSfixed32)),
+			Float(16, onceEq(t, d, msg.SimpleFloat)),
+			Message(17, New(
+				String(1, onceEq(t, d, msg.Sub.Number)),
+			)),
+			Uint32(18, repeatedEq(t, d, msg.RepeatedUint32)),
+			String(19, repeatedEq(t, d, msg.RepeatedString)),
+			Uint32(20, repeatedEq(t, d, msg.RepeatedPackedUint32)),
+			Float(21, repeatedEq(t, d, msg.RepeatedPackedFloat)),
+			Double(22, repeatedEq(t, d, msg.RepeatedPackedDouble)),
+			Varint(12313, onceEq(t, d, msg.BigNumberVarint)),
+			Fixed32(12314, onceEq(t, d, msg.BigNumberFixed32)),
+			Fixed64(12315, onceEq(t, d, msg.BigNumberFixed64)),
+			String(12316, onceEq(t, d, msg.BigNumberString)),
+			UnknownBytes(func(num int, v []byte) error { assert.Fail("unknown bytes"); return nil }),
+			UnknownFixed32(func(num int, v uint32) error { assert.Fail("unknown fixed32"); return nil }),
+			UnknownFixed64(func(num int, v uint64) error { assert.Fail("unknown fixed64"); return nil }),
+			UnknownVarint(func(num int, v uint64) error { assert.Fail("unknown varint"); return nil }),
+		)
+
+		assert.NoError(parseFunc(msg, p))
+
+		d.Run()
+	})
+}
