@@ -2,7 +2,9 @@ package rawpb
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"math/rand/v2"
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
@@ -284,6 +286,61 @@ func simple[T any](t *testing.T, num int, opt func(num int, f func(T) error) Opt
 		assert.NoError(parseFunc(msg, p))
 		assert.Equal(0, unknown)
 	})
+
+	do(t, fmt.Sprintf("simple field %d pass error from callback", num), func(t *testing.T, parseFunc func(proto.Message, *RawPB) error) {
+		assert := assert.New(t)
+
+		msg.Reset()
+		*field = value
+
+		r := fmt.Sprintf("error %d", rand.Uint32())
+
+		p := New(opt(num, func(v T) error {
+			return errors.New(r)
+		}))
+
+		err := parseFunc(msg, p)
+		assert.ErrorContains(err, r)
+		assert.ErrorContains(err, fmt.Sprintf("[%d]", num))
+	})
+
+	do(t, fmt.Sprintf("simple field %d pass error from unknown callback", num), func(t *testing.T, parseFunc func(proto.Message, *RawPB) error) {
+		assert := assert.New(t)
+
+		msg.Reset()
+		*field = value
+
+		r := fmt.Sprintf("error %d", rand.Uint32())
+
+		p := New(
+			UnknownBytes(func(num int, v []byte) error { return errors.New(r) }),
+			UnknownVarint(func(num int, v uint64) error { return errors.New(r) }),
+			UnknownFixed64(func(num int, v uint64) error { return errors.New(r) }),
+			UnknownFixed32(func(num int, v uint32) error { return errors.New(r) }),
+		)
+
+		err := parseFunc(msg, p)
+		assert.ErrorContains(err, r)
+		assert.ErrorContains(err, fmt.Sprintf("[%d]", num))
+	})
+
+	doBody(t, fmt.Sprintf("simple field %d truncated", num), func(t *testing.T, parseFunc func([]byte, *RawPB) error) {
+		assert := assert.New(t)
+
+		msg.Reset()
+		*field = value
+
+		p := New()
+
+		body, err := proto.Marshal(msg)
+		if !assert.NoError(err) {
+			return
+		}
+
+		for i := 1; i < len(body)-1; i++ {
+			assert.Error(parseFunc(body[:i], p))
+		}
+	})
 }
 
 func repeated[T any](t *testing.T, num int, opt func(num int, f func(T) error) Option, value []T, field *[]T, msg *test.Main) {
@@ -322,6 +379,31 @@ func repeated[T any](t *testing.T, num int, opt func(num int, f func(T) error) O
 		)
 		assert.NoError(parseFunc(msg, p))
 		assert.Equal(0, unknown)
+	})
+}
+
+func doBody(t *testing.T, name string, cb func(t *testing.T, parseFunc func([]byte, *RawPB) error)) {
+	t.Run(fmt.Sprintf("%s/Parse", name), func(t *testing.T) {
+		f := func(body []byte, p *RawPB) error {
+			return p.Parse(body)
+		}
+		cb(t, f)
+	})
+
+	t.Run(fmt.Sprintf("%s/Read_HeapAllocator", name), func(t *testing.T) {
+		f := func(body []byte, p *RawPB) error {
+			b := bytes.NewReader(body)
+			return p.Read(b, nil)
+		}
+		cb(t, f)
+	})
+
+	t.Run(fmt.Sprintf("%s/Read_LinearAllocator", name), func(t *testing.T) {
+		f := func(body []byte, p *RawPB) error {
+			b := bytes.NewReader(body)
+			return p.Read(b, NewLinearAllocator())
+		}
+		cb(t, f)
 	})
 }
 
