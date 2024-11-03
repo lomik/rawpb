@@ -91,7 +91,11 @@ func (r *readerLimit) next() bool {
 }
 
 func (r *readerLimit) skip(n uint64) error {
-	_, err := r.bytes(n)
+	if n > r.limit {
+		return ErrorTruncated
+	}
+	_, err := io.CopyN(io.Discard, r.w, int64(n))
+	r.limit -= n
 	return err
 }
 
