@@ -1,4 +1,7 @@
 # rawpb
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/pluto-metrics/rawpb.svg)](https://pkg.go.dev/github.com/pluto-metrics/rawpb)
+
 Raw protobuf message reader
 
 ## Usage
