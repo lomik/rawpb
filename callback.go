@@ -117,6 +117,10 @@ func (c *callback) wireType() string {
 }
 
 func (cb *callbacks) get(num int) callback {
+	if num <= 0 {
+		return emptyCallback
+	}
+
 	if num > maxFieldListItems {
 		return cb.mp[num]
 	}
