@@ -40,6 +40,7 @@ func Message(num int, n *RawPB) Option {
 	}
 }
 
+// Uint64 registers a callback for unsigned 64-bit integers using varint encoding
 func Uint64(num int, f func(uint64) error) Option {
 	return Varint(num, f)
 }
@@ -48,6 +49,8 @@ func unsafeString(b []byte) string {
 	return *(*string)(unsafe.Pointer(&b))
 }
 
+// String registers a callback for string values from length-delimited fields.
+// Uses unsafe conversion from byte slice to avoid allocation.
 func String(num int, f func(string) error) Option {
 	return Bytes(num, func(b []byte) error {
 		if f == nil {
@@ -57,6 +60,7 @@ func String(num int, f func(string) error) Option {
 	})
 }
 
+// Int64 registers a callback for signed 64-bit integers using varint encoding
 func Int64(num int, f func(int64) error) Option {
 	return Varint(num, func(u uint64) error {
 		if f == nil {
@@ -66,6 +70,7 @@ func Int64(num int, f func(int64) error) Option {
 	})
 }
 
+// Double registers a callback for double-precision floating point numbers using fixed64 encoding
 func Double(num int, f func(float64) error) Option {
 	return Fixed64(num, func(u uint64) error {
 		if f == nil {
@@ -75,6 +80,7 @@ func Double(num int, f func(float64) error) Option {
 	})
 }
 
+// Float registers a callback for single-precision floating point numbers using fixed32 encoding
 func Float(num int, f func(float32) error) Option {
 	return Fixed32(num, func(u uint32) error {
 		if f == nil {
@@ -84,6 +90,7 @@ func Float(num int, f func(float32) error) Option {
 	})
 }
 
+// Bool registers a callback for boolean values decoded from varint-encoded integers
 func Bool(num int, f func(bool) error) Option {
 	return Int32(num, func(u int32) error {
 		if f == nil {
@@ -93,10 +100,12 @@ func Bool(num int, f func(bool) error) Option {
 	})
 }
 
+// Enum registers a callback for protocol buffer enum values encoded as varints
 func Enum(num int, f func(int32) error) Option {
 	return Int32(num, f)
 }
 
+// Uint32 registers a callback for unsigned 32-bit integers using varint encoding
 func Uint32(num int, f func(uint32) error) Option {
 	return Varint(num, func(u uint64) error {
 		if f == nil {
@@ -106,6 +115,7 @@ func Uint32(num int, f func(uint32) error) Option {
 	})
 }
 
+// Int32 registers a callback for signed 32-bit integers using varint encoding
 func Int32(num int, f func(int32) error) Option {
 	return Uint32(num, func(u uint32) error {
 		if f == nil {
@@ -115,6 +125,7 @@ func Int32(num int, f func(int32) error) Option {
 	})
 }
 
+// Sint32 registers a callback for zigzag-encoded signed 32-bit integers
 func Sint32(num int, f func(int32) error) Option {
 	return Uint32(num, func(u uint32) error {
 		if f == nil {
@@ -127,6 +138,7 @@ func Sint32(num int, f func(int32) error) Option {
 	})
 }
 
+// Sint64 registers a callback for zigzag-encoded signed 64-bit integers
 func Sint64(num int, f func(int64) error) Option {
 	return Uint64(num, func(u uint64) error {
 		if f == nil {
@@ -139,6 +151,7 @@ func Sint64(num int, f func(int64) error) Option {
 	})
 }
 
+// Sfixed64 registers a callback for signed 64-bit integers using fixed64 encoding
 func Sfixed64(num int, f func(int64) error) Option {
 	return Fixed64(num, func(u uint64) error {
 		if f == nil {
@@ -148,6 +161,7 @@ func Sfixed64(num int, f func(int64) error) Option {
 	})
 }
 
+// Sfixed32 registers a callback for signed 32-bit integers using fixed32 encoding
 func Sfixed32(num int, f func(int32) error) Option {
 	return Fixed32(num, func(u uint32) error {
 		if f == nil {
