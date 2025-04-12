@@ -7,10 +7,6 @@ import (
 
 const maxFieldListItems = 128
 
-type callbackFunc interface {
-	func(v uint64) error | func(v uint32) error | func(v []byte) error
-}
-
 type callbackType int
 
 const (
