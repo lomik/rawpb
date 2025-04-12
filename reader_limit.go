@@ -4,6 +4,7 @@ import (
 	"io"
 )
 
+// Reader combines io.Reader with io.ByteScanner for reading protocol buffer data
 type Reader interface {
 	io.Reader
 	io.ByteScanner

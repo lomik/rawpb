@@ -5,30 +5,35 @@ import (
 	"unsafe"
 )
 
+// Bytes registers a callback for length-delimited (bytes/string) fields
 func Bytes(num int, f func([]byte) error) Option {
 	return func(p *RawPB) {
 		p.schema.setBytes(num, f)
 	}
 }
 
+// Varint registers a callback for varint-encoded fields
 func Varint(num int, f func(uint64) error) Option {
 	return func(p *RawPB) {
 		p.schema.setVarint(num, f)
 	}
 }
 
+// Fixed64 registers a callback for 64-bit fixed-size fields
 func Fixed64(num int, f func(uint64) error) Option {
 	return func(p *RawPB) {
 		p.schema.setFixed64(num, f)
 	}
 }
 
+// Fixed32 registers a callback for 32-bit fixed-size fields
 func Fixed32(num int, f func(uint32) error) Option {
 	return func(p *RawPB) {
 		p.schema.setFixed32(num, f)
 	}
 }
 
+// Message registers a nested message parser for length-delimited fields
 func Message(num int, n *RawPB) Option {
 	return func(p *RawPB) {
 		p.schema.setMessage(num, n)

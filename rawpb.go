@@ -10,6 +10,7 @@ var ErrorTruncated = errors.New("message truncated")
 var ErrorInvalidMessage = errors.New("invalid message")
 var ErrorWrongWireType = errors.New("wrong wire type")
 
+// RawPB implements a low-level protocol buffer parser without code generation
 type RawPB struct {
 	beginFunc func() error
 	endFunc   func() error
@@ -17,6 +18,7 @@ type RawPB struct {
 	name      string
 }
 
+// New creates a new RawPB parser with optional configuration
 func New(opts ...Option) *RawPB {
 	r := &RawPB{}
 
@@ -27,6 +29,7 @@ func New(opts ...Option) *RawPB {
 	return r
 }
 
+// Read parses protocol buffer data from a stream with memory management via Allocator
 func (pb *RawPB) Read(stream Reader, allocator Allocator) error {
 	if allocator == nil {
 		allocator = &HeapAllocator{}
@@ -208,6 +211,7 @@ func (pb *RawPB) doRead(r *readerLimit) error {
 	return nil
 }
 
+// Parse decodes protocol buffer data directly from a byte slice
 func (pb *RawPB) Parse(body []byte) error {
 
 	r := newReaderBody(body)
