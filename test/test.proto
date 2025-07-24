@@ -33,6 +33,12 @@ message Main {
     message Submessage {
         string number = 1;
         EnumType type = 2;
+
+        message Submessage2 {
+            uint32 value = 28;
+        }
+
+        Submessage2 sub2 = 3;
     }
 
     Submessage sub = 17;

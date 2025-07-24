@@ -1,0 +1,207 @@
+package rawpb
+
+import (
+	"bytes"
+	"fmt"
+	"testing"
+
+	"github.com/gogo/protobuf/proto"
+	"github.com/pluto-metrics/rawpb/test"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestWriter(t *testing.T) {
+
+	type testCase struct {
+		cb    func(w *Writer)
+		check func(t *testing.T, msg *test.Main)
+	}
+
+	table := make([]testCase, 0)
+
+	// uint64
+	table = append(table, testCase{
+		func(w *Writer) {
+			w.Uint64(4, 976322353)
+		},
+		func(t *testing.T, msg *test.Main) {
+			assert.Equal(t, uint64(976322353), msg.SimpleUint64)
+		},
+	})
+
+	// uint32
+	table = append(table, testCase{
+		func(w *Writer) {
+			w.Uint32(3, 865343)
+		},
+		func(t *testing.T, msg *test.Main) {
+			assert.Equal(t, uint32(865343), msg.SimpleUint32)
+		},
+	})
+
+	// int64
+	table = append(table, testCase{
+		func(w *Writer) {
+			w.Int64(2, -1234567890)
+		},
+		func(t *testing.T, msg *test.Main) {
+			assert.Equal(t, int64(-1234567890), msg.SimpleInt64)
+		},
+	})
+
+	// int32
+	table = append(table, testCase{
+		func(w *Writer) {
+			w.Int32(1, -1234567890)
+		},
+		func(t *testing.T, msg *test.Main) {
+			assert.Equal(t, int32(-1234567890), msg.SimpleInt32)
+		},
+	})
+
+	// string
+	table = append(table, testCase{
+		func(w *Writer) {
+			w.String(12, "test string")
+		},
+		func(t *testing.T, msg *test.Main) {
+			assert.Equal(t, "test string", msg.SimpleString)
+		},
+	})
+
+	// bool
+	table = append(table, testCase{
+		func(w *Writer) {
+			w.Bool(7, true)
+		},
+		func(t *testing.T, msg *test.Main) {
+			assert.Equal(t, true, msg.SimpleBool)
+		},
+	})
+
+	// bool, false
+	table = append(table, testCase{
+		func(w *Writer) {
+			w.Bool(7, false)
+		},
+		func(t *testing.T, msg *test.Main) {
+			assert.Equal(t, false, msg.SimpleBool)
+		},
+	})
+
+	// enum
+	table = append(table, testCase{
+		func(w *Writer) {
+			w.Enum(8, int32(test.EnumType_ENUM_TYPE_VALUE3))
+		},
+		func(t *testing.T, msg *test.Main) {
+			assert.Equal(t, test.EnumType_ENUM_TYPE_VALUE3, msg.SimpleEnum)
+		},
+	})
+
+	// double
+	table = append(table, testCase{
+		func(w *Writer) {
+			w.Double(11, 123.456)
+		},
+		func(t *testing.T, msg *test.Main) {
+			assert.Equal(t, 123.456, msg.SimpleDouble)
+		},
+	})
+
+	// float
+	table = append(table, testCase{
+		func(w *Writer) {
+			w.Float(16, 123.456)
+		},
+		func(t *testing.T, msg *test.Main) {
+			assert.Equal(t, float32(123.456), msg.SimpleFloat)
+		},
+	})
+
+	// sint32
+	table = append(table, testCase{
+		func(w *Writer) {
+			w.Sint32(5, -1234567890)
+		},
+		func(t *testing.T, msg *test.Main) {
+			assert.Equal(t, int32(-1234567890), msg.SimpleSint32)
+		},
+	})
+
+	// sint64
+	table = append(table, testCase{
+		func(w *Writer) {
+			w.Sint64(6, -1234567890123456789)
+		},
+		func(t *testing.T, msg *test.Main) {
+			assert.Equal(t, int64(-1234567890123456789), msg.SimpleSint64)
+		},
+	})
+
+	// sfixed32
+	table = append(table, testCase{
+		func(w *Writer) {
+			w.Sfixed32(15, -1234567890)
+		},
+		func(t *testing.T, msg *test.Main) {
+			assert.Equal(t, int32(-1234567890), msg.SimpleSfixed32)
+		},
+	})
+
+	// sfixed64
+	table = append(table, testCase{
+		func(w *Writer) {
+			w.Sfixed64(10, -1234567890123456789)
+		},
+		func(t *testing.T, msg *test.Main) {
+			assert.Equal(t, int64(-1234567890123456789), msg.SimpleSfixed64)
+		},
+	})
+
+	// bytes
+	table = append(table, testCase{
+		func(w *Writer) {
+			w.Bytes(13, []byte("test bytes"))
+		},
+		func(t *testing.T, msg *test.Main) {
+			assert.Equal(t, []byte("test bytes"), msg.SimpleBytes)
+		},
+	})
+
+	// message
+	table = append(table, testCase{
+		func(w *Writer) {
+			w.Message(17, func(w *Writer) error {
+				w.String(1, "sub message")
+				w.Enum(2, int32(test.EnumType_ENUM_TYPE_VALUE2))
+
+				w.Message(3, func(w *Writer) error {
+					w.Uint32(28, 42)
+					return nil
+				})
+				return nil
+			})
+		},
+		func(t *testing.T, msg *test.Main) {
+			assert.NotNil(t, msg.Sub)
+			assert.Equal(t, "sub message", msg.Sub.Number)
+			assert.Equal(t, test.EnumType_ENUM_TYPE_VALUE2, msg.Sub.Type)
+			assert.Equal(t, uint32(42), msg.Sub.Sub2.Value)
+		},
+	})
+
+	for index, tt := range table {
+		t.Run(fmt.Sprintf("#%d", index), func(t *testing.T) {
+			msg := &test.Main{}
+			buf := &bytes.Buffer{}
+			Write(buf, func(w *Writer) error {
+				tt.cb(w)
+				return nil
+			})
+			err := proto.Unmarshal(buf.Bytes(), msg)
+			assert.NoError(t, err, "unmarshal error")
+			tt.check(t, msg)
+		})
+	}
+}
