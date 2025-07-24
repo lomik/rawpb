@@ -205,3 +205,33 @@ func TestWriter(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkWriter(b *testing.B) {
+
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+
+	do := func() {
+		w.Message(17, func(w *Writer) error {
+			w.String(1, "sub message")
+			w.Enum(2, int32(test.EnumType_ENUM_TYPE_VALUE2))
+			w.Uint64(4, 976322353)
+
+			w.Message(3, func(w *Writer) error {
+				w.Uint32(28, 42)
+				return nil
+			})
+			return nil
+		})
+	}
+
+	do()
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		buf.Reset()
+		do()
+	}
+
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"math"
+	"unsafe"
 )
 
 const (
@@ -16,6 +17,7 @@ const (
 // Writer implements a low-level protocol buffer writer without code generation
 type Writer struct {
 	wrap      io.Writer
+	buf       [10]byte
 	subBuffer bytes.Buffer
 	subWriter *Writer
 	err       error
@@ -67,16 +69,21 @@ func (w *Writer) Message(num int, cb func(w *Writer) error) {
 	w.Bytes(num, w.subBuffer.Bytes())
 }
 
-func encodeVarint(v uint64) []byte {
-	var buf [10]byte
+func (w *Writer) writeVarint(v uint64) error {
 	n := 0
 	for v >= 1<<7 {
-		buf[n] = byte(v&0x7f | 0x80)
+		w.buf[n] = byte(v&0x7f | 0x80)
 		v >>= 7
 		n++
 	}
-	buf[n] = byte(v)
-	return buf[:n+1]
+	w.buf[n] = byte(v)
+
+	if _, err := w.wrap.Write(w.buf[:n+1]); err != nil {
+		w.err = err
+		return err
+	}
+
+	return nil
 }
 
 func (w *Writer) writeTag(num int, wt int) error {
@@ -85,7 +92,7 @@ func (w *Writer) writeTag(num int, wt int) error {
 	}
 
 	tag := (uint64(num) << 3) | uint64(wt)
-	if _, err := w.wrap.Write(encodeVarint(tag)); err != nil {
+	if err := w.writeVarint(tag); err != nil {
 		w.err = err
 		return err
 	}
@@ -99,7 +106,7 @@ func (w *Writer) Bytes(num int, v []byte) {
 		return
 	}
 
-	if _, err := w.wrap.Write(encodeVarint(uint64(len(v)))); err != nil {
+	if err := w.writeVarint(uint64(len(v))); err != nil {
 		w.err = err
 		return
 	}
@@ -116,11 +123,10 @@ func (w *Writer) Fixed64(num int, v uint64) {
 		return
 	}
 
-	var buf [8]byte
 	for i := 0; i < 8; i++ {
-		buf[i] = byte(v >> (i * 8))
+		w.buf[i] = byte(v >> (i * 8))
 	}
-	if _, err := w.wrap.Write(buf[:]); err != nil {
+	if _, err := w.wrap.Write(w.buf[:8]); err != nil {
 		w.err = err
 	}
 }
@@ -131,11 +137,10 @@ func (w *Writer) Fixed32(num int, v uint32) {
 		return
 	}
 
-	var buf [4]byte
 	for i := 0; i < 4; i++ {
-		buf[i] = byte(v >> (i * 8))
+		w.buf[i] = byte(v >> (i * 8))
 	}
-	if _, err := w.wrap.Write(buf[:]); err != nil {
+	if _, err := w.wrap.Write(w.buf[:4]); err != nil {
 		w.err = err
 	}
 }
@@ -146,7 +151,7 @@ func (w *Writer) Uint64(num int, v uint64) {
 		return
 	}
 
-	if _, err := w.wrap.Write(encodeVarint(v)); err != nil {
+	if err := w.writeVarint(v); err != nil {
 		w.err = err
 	}
 }
@@ -157,12 +162,17 @@ func (w *Writer) String(num int, v string) {
 		return
 	}
 
-	if _, err := w.wrap.Write(encodeVarint(uint64(len(v)))); err != nil {
+	if err := w.writeVarint(uint64(len(v))); err != nil {
 		w.err = err
 		return
 	}
 	if len(v) > 0 {
-		if _, err := w.wrap.Write([]byte(v)); err != nil {
+		// unsafe string to bytes
+		dataPtr := unsafe.StringData(v)
+		// Create a byte slice from the pointer and string length
+		byteSlice := unsafe.Slice(dataPtr, len(v))
+
+		if _, err := w.wrap.Write(byteSlice); err != nil {
 			w.err = err
 		}
 	}
