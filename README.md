@@ -68,6 +68,27 @@ r := New(
 r.Parse(raw)
 ```
 
+## Write
+
+```golang
+rawpb.Write(out, func(w *Writer) error {
+    w.String(12, "test string")
+    w.Float(16, 123.456)
+
+    // submessage
+    w.Message(17, func(w *Writer) error {
+        w.String(1, "sub message")
+        w.Enum(2, int32(test.EnumType_ENUM_TYPE_VALUE2))
+
+        w.Message(3, func(w *Writer) error {
+            w.Uint32(28, 42)
+            return nil
+        })
+        return nil
+    })
+})
+```
+
 ```bash
 > go test -bench=. -benchmem
 BenchmarkGogoUnmarshalWriteRequest-8   	     711	   1875505 ns/op	 3815839 B/op	   35980 allocs/op
