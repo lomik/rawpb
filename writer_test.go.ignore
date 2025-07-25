@@ -206,16 +206,16 @@ func TestWriter(t *testing.T) {
 	}
 }
 
-func BenchmarkWriter(b *testing.B) {
-
+func BenchmarkRawpbWriter(b *testing.B) {
 	var buf bytes.Buffer
 	w := NewWriter(&buf)
 
 	do := func() {
+		w.Uint64(4, 976322353)
+
 		w.Message(17, func(w *Writer) error {
 			w.String(1, "sub message")
 			w.Enum(2, int32(test.EnumType_ENUM_TYPE_VALUE2))
-			w.Uint64(4, 976322353)
 
 			w.Message(3, func(w *Writer) error {
 				w.Uint32(28, 42)
@@ -233,5 +233,24 @@ func BenchmarkWriter(b *testing.B) {
 		buf.Reset()
 		do()
 	}
+}
 
+func BenchmarkGogoMarshal(b *testing.B) {
+
+	msg := &test.Main{
+		SimpleUint64: 976322353,
+		Sub: &test.Main_Submessage{
+			Number: "sub message",
+			Type:   test.EnumType_ENUM_TYPE_VALUE2,
+			Sub2: &test.Main_Submessage_Submessage2{
+				Value: 42,
+			},
+		},
+	}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		proto.Marshal(msg)
+	}
 }
