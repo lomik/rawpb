@@ -1,7 +1,7 @@
 syntax = "proto3";
 package test;
 
-option go_package = "github.com/pluto-metrics/rawpb/test";
+option go_package = "github.com/lomik/rawpb/test";
 
 /*
 0	VARINT	int32, int64, uint32, uint64, sint32, sint64, bool, enum

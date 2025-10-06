@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/pluto-metrics/rawpb/test"
+	"github.com/lomik/rawpb/test"
 	"github.com/stretchr/testify/assert"
 )
 
