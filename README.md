@@ -2,7 +2,19 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/lomik/rawpb.svg)](https://pkg.go.dev/github.com/lomik/rawpb)
 
-Raw protobuf message reader
+rawpb is a tiny Go library for reading and writing protobuf messages directly, without generated code.
+
+A lightweight Go library for reading and writing raw protobuf messages without generated code.
+
+## Features
+
+- Parse raw protobuf without generated code
+- Write protobuf messages
+- High‑performance zero‑allocation parsing
+
+## Installation
+
+go get github.com/lomik/rawpb
 
 ## Usage
 Using the library with an example of a Prometheus remote write message.
