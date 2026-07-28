@@ -3,8 +3,18 @@ package rawpb
 import (
 	"bytes"
 	"errors"
+	"io"
 	"testing"
 )
+
+// failingReader returns a custom error on the first call to Read/ReadByte.
+type failingReader struct {
+	err error
+}
+
+func (f *failingReader) Read(p []byte) (int, error)  { return 0, f.err }
+func (f *failingReader) ReadByte() (byte, error)     { return 0, f.err }
+func (f *failingReader) UnreadByte() error           { return f.err }
 
 // hugeLengthField encodes a length-delimited field (field 1, wire type 2)
 // whose length varint is 2^63. Without the overflow guard, int(l) becomes
@@ -207,6 +217,44 @@ func TestReadMaxSizeCapsStream(t *testing.T) {
 	}
 	if called {
 		t.Fatal("callback must not fire for oversized field")
+	}
+}
+
+func TestReadPreservesUnderlyingIOError(t *testing.T) {
+	// A length-delimited field claiming 8 payload bytes, but the stream only
+	// has 4. io.ReadAtLeast returns io.ErrUnexpectedEOF (having read some
+	// but not enough); the parser must preserve it while also reporting
+	// ErrorTruncated.
+	input := []byte{0x0a, 0x08, 0x01, 0x02, 0x03, 0x04}
+
+	r := New(Bytes(1, func(v []byte) error { return nil }))
+
+	err := r.Read(bytes.NewReader(input), nil)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, ErrorTruncated) {
+		t.Fatalf("errors.Is(err, ErrorTruncated) = false; err = %v", err)
+	}
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("errors.Is(err, io.ErrUnexpectedEOF) = false; err = %v", err)
+	}
+}
+
+func TestReadPropagatesCustomReaderError(t *testing.T) {
+	sentinel := errors.New("network is on fire")
+
+	r := New(Bytes(1, func(v []byte) error { return nil }))
+
+	err := r.Read(&failingReader{err: sentinel}, nil)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, ErrorTruncated) {
+		t.Fatalf("errors.Is(err, ErrorTruncated) = false; err = %v", err)
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("errors.Is(err, sentinel) = false; err = %v", err)
 	}
 }
 

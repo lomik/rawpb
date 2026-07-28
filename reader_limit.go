@@ -1,9 +1,20 @@
 package rawpb
 
 import (
+	"fmt"
 	"io"
 	"math"
 )
+
+// truncated wraps an underlying IO error so that both errors.Is(err,
+// ErrorTruncated) and errors.Is(err, cause) succeed. When cause is nil the
+// bare sentinel is returned.
+func truncated(cause error) error {
+	if cause == nil {
+		return ErrorTruncated
+	}
+	return fmt.Errorf("%w: %w", ErrorTruncated, cause)
+}
 
 // Reader combines io.Reader with io.ByteScanner for reading protocol buffer data
 type Reader interface {
@@ -48,7 +59,7 @@ func (r *readerLimit) varintOrBreak() (uint64, bool, error) {
 				// can't read first byte. stream ended
 				return 0, true, nil
 			}
-			return ret, true, ErrorTruncated
+			return ret, true, truncated(err)
 		}
 		r.limit--
 		ret += uint64(b&0x7f) << (7 * i)
@@ -73,7 +84,7 @@ func (r *readerLimit) varint() (uint64, error) {
 		}
 		b, err = r.w.ReadByte()
 		if err != nil {
-			return ret, ErrorTruncated
+			return ret, truncated(err)
 		}
 		r.limit--
 		ret += uint64(b&0x7f) << (7 * i)
@@ -107,7 +118,10 @@ func (r *readerLimit) skip(n uint64) error {
 	}
 	_, err := io.CopyN(io.Discard, r.w, int64(n))
 	r.limit -= n
-	return err
+	if err != nil {
+		return truncated(err)
+	}
+	return nil
 }
 
 func (r *readerLimit) bytes(n uint64) ([]byte, error) {
@@ -121,7 +135,7 @@ func (r *readerLimit) bytes(n uint64) ([]byte, error) {
 
 	_, err := io.ReadAtLeast(r.w, p, int(n))
 	if err != nil {
-		return p, ErrorTruncated
+		return p, truncated(err)
 	}
 	r.limit -= n
 	return p, nil
@@ -133,7 +147,7 @@ func (r *readerLimit) fixed64() (uint64, error) {
 	}
 	_, err := io.ReadAtLeast(r.w, r.buf[:8], 8)
 	if err != nil {
-		return 0, ErrorTruncated
+		return 0, truncated(err)
 	}
 
 	u := uint64(r.buf[0]) | (uint64(r.buf[1]) << 8) | (uint64(r.buf[2]) << 16) | (uint64(r.buf[3]) << 24) |
@@ -148,7 +162,7 @@ func (r *readerLimit) fixed32() (uint32, error) {
 	}
 	_, err := io.ReadAtLeast(r.w, r.buf[:4], 4)
 	if err != nil {
-		return 0, ErrorTruncated
+		return 0, truncated(err)
 	}
 	u := uint32(r.buf[0]) | (uint32(r.buf[1]) << 8) | (uint32(r.buf[2]) << 16) | (uint32(r.buf[3]) << 24)
 	r.limit -= 4
