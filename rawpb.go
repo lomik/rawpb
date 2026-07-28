@@ -34,7 +34,22 @@ func New(opts ...Option) *RawPB {
 	return r
 }
 
-// Read parses protocol buffer data from a stream with memory management via Allocator
+// Read parses protocol buffer data from a stream.
+//
+// stream must implement both io.Reader and io.ByteScanner; bufio.Reader and
+// bytes.Reader/bytes.Buffer satisfy this out of the box. All bytes for
+// length-delimited fields are copied out of the stream into memory obtained
+// from allocator.
+//
+// If allocator is nil, a fresh HeapAllocator is used (one make([]byte, n)
+// per length-delimited field). Pass a *LinearAllocator to reuse a single
+// arena across the parse and reclaim it with LinearAllocator.Reset between
+// messages when reading a stream of framed messages.
+//
+// The number of bytes Read will consume from stream is capped by the MaxSize
+// option (default: unlimited). Without MaxSize a malicious peer can request
+// arbitrarily large per-field allocations (bounded only by math.MaxInt);
+// production callers reading untrusted input should always set MaxSize.
 func (pb *RawPB) Read(stream Reader, allocator Allocator) error {
 	if allocator == nil {
 		allocator = &HeapAllocator{}
