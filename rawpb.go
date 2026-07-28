@@ -376,5 +376,5 @@ func (pb *RawPB) wrapError(num int, err error) error {
 	if name == "" {
 		name = "<unnamed>"
 	}
-	return fmt.Errorf("%s[%d]: %s", name, num, err.Error())
+	return fmt.Errorf("%s[%d]: %w", name, num, err)
 }

@@ -210,6 +210,44 @@ func TestReadMaxSizeCapsStream(t *testing.T) {
 	}
 }
 
+func TestParseErrorsAreUnwrappable(t *testing.T) {
+	cases := []struct {
+		name  string
+		input []byte
+		want  error
+	}{
+		{
+			name:  "invalid field number",
+			input: []byte{0x00, 0x00}, // field 0
+			want:  ErrorInvalidMessage,
+		},
+		{
+			name:  "overlong varint",
+			input: overlongVarint,
+			want:  ErrorInvalidMessage,
+		},
+		{
+			name: "truncated length-delimited",
+			// field 1 wire type 2, length 100, no payload
+			input: []byte{0x0a, 0x64},
+			want:  ErrorTruncated,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := New(Name("test"), Bytes(1, func(v []byte) error { return nil }))
+			err := r.Parse(tc.input)
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("errors.Is(err, %v) = false; err = %v", tc.want, err)
+			}
+		})
+	}
+}
+
 func TestParseRejectsFieldNumberZero(t *testing.T) {
 	// tag = 0x00: field number 0, wire type 0 (varint); then a varint value.
 	input := []byte{0x00, 0x00}
