@@ -11,6 +11,7 @@ link-test:
 	ln -f -s test.pb.go.ignore test/test.pb.go
 	ln -f -s rawpb_all_test.go.ignore rawpb_all_test.go
 	ln -f -s writer_test.go.ignore writer_test.go
+	ln -f -s hardening_test.go.ignore hardening_test.go
 	go mod tidy
 
 unlink-test:
@@ -19,6 +20,7 @@ unlink-test:
 	rm test/test.pb.go
 	rm rawpb_all_test.go
 	rm writer_test.go
+	rm hardening_test.go
 	go mod tidy
 
 	

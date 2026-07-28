@@ -51,3 +51,12 @@ func Name(name string) Option {
 		p.name = name
 	}
 }
+
+// MaxSize limits the total number of input bytes accepted by Parse or Read.
+// Zero (the default) means unlimited. On violation, parsing returns
+// ErrorInvalidMessage.
+func MaxSize(size uint64) Option {
+	return func(p *RawPB) {
+		p.maxSize = size
+	}
+}

@@ -1,5 +1,9 @@
 package rawpb
 
+// maxVarintBytes is the maximum length of a valid protobuf varint for a 64-bit
+// value. Anything longer is treated as a malformed message.
+const maxVarintBytes = 10
+
 type readerBody struct {
 	body   []byte
 	offset int
@@ -15,6 +19,9 @@ func (r *readerBody) varint() (uint64, error) {
 	var ret uint64
 	i := uint64(0)
 	for r.next() {
+		if i >= maxVarintBytes {
+			return 0, ErrorInvalidMessage
+		}
 		ret += uint64(r.body[r.offset]&0x7f) << (7 * i)
 		if r.body[r.offset]&0x80 == 0 { // last byte of varint
 			r.offset++
@@ -30,12 +37,14 @@ func (r *readerBody) next() bool {
 	return r.offset < len(r.body)
 }
 
-func (r *readerBody) bytes(n int) ([]byte, error) {
-	if r.offset+n > len(r.body) {
+func (r *readerBody) bytes(n uint64) ([]byte, error) {
+	avail := uint64(len(r.body) - r.offset)
+	if n > avail {
 		return nil, ErrorTruncated
 	}
-	v := r.body[r.offset : r.offset+n]
-	r.offset += n
+	end := r.offset + int(n)
+	v := r.body[r.offset:end]
+	r.offset = end
 	return v, nil
 }
 
@@ -44,7 +53,7 @@ func (r *readerBody) lengthDelimited() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return r.bytes(int(l))
+	return r.bytes(l)
 }
 
 func (r *readerBody) fixed64() (uint64, error) {

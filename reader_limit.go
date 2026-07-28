@@ -2,6 +2,7 @@ package rawpb
 
 import (
 	"io"
+	"math"
 )
 
 // Reader combines io.Reader with io.ByteScanner for reading protocol buffer data
@@ -31,6 +32,9 @@ func (r *readerLimit) varintOrBreak() (uint64, bool, error) {
 	var err error
 	i := uint64(0)
 	for {
+		if i >= maxVarintBytes {
+			return ret, true, ErrorInvalidMessage
+		}
 		if r.limit == 0 {
 			if i == 0 {
 				// can't read first byte. stream ended
@@ -61,6 +65,9 @@ func (r *readerLimit) varint() (uint64, error) {
 	var err error
 	i := uint64(0)
 	for {
+		if i >= maxVarintBytes {
+			return ret, ErrorInvalidMessage
+		}
 		if r.limit == 0 {
 			return ret, ErrorTruncated
 		}
@@ -103,6 +110,9 @@ func (r *readerLimit) skip(n uint64) error {
 func (r *readerLimit) bytes(n uint64) ([]byte, error) {
 	if n > r.limit {
 		return nil, ErrorTruncated
+	}
+	if n > uint64(math.MaxInt) {
+		return nil, ErrorInvalidMessage
 	}
 	p := r.mem.Alloc(int(n))
 

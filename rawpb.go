@@ -16,6 +16,7 @@ type RawPB struct {
 	endFunc   func() error
 	schema    callbacks
 	name      string
+	maxSize   uint64
 }
 
 // New creates a new RawPB parser with optional configuration
@@ -35,7 +36,12 @@ func (pb *RawPB) Read(stream Reader, allocator Allocator) error {
 		allocator = &HeapAllocator{}
 	}
 
-	return pb.doRead(newReaderLimit(stream, allocator, math.MaxUint64))
+	limit := pb.maxSize
+	if limit == 0 {
+		limit = math.MaxUint64
+	}
+
+	return pb.doRead(newReaderLimit(stream, allocator, limit))
 }
 
 func (pb *RawPB) doRead(r *readerLimit) error {
@@ -213,6 +219,10 @@ func (pb *RawPB) doRead(r *readerLimit) error {
 
 // Parse decodes protocol buffer data directly from a byte slice
 func (pb *RawPB) Parse(body []byte) error {
+
+	if pb.maxSize > 0 && uint64(len(body)) > pb.maxSize {
+		return ErrorInvalidMessage
+	}
 
 	r := newReaderBody(body)
 

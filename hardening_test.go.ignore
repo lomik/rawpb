@@ -1,0 +1,199 @@
+package rawpb
+
+import (
+	"bytes"
+	"errors"
+	"testing"
+)
+
+// hugeLengthField encodes a length-delimited field (field 1, wire type 2)
+// whose length varint is 2^63. Without the overflow guard, int(l) becomes
+// negative and slicing/allocation panics.
+var hugeLengthField = []byte{
+	0x0a,                                                       // tag: field 1, wire type 2 (LEN)
+	0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01, // varint length = 1 << 63
+}
+
+// overlongVarint is field 1 wire type 0 (varint) followed by 11 continuation
+// bytes. A well-formed 64-bit varint is at most 10 bytes.
+var overlongVarint = []byte{
+	0x08,                                                             // tag: field 1, wire type 0 (VARINT)
+	0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01, // 11-byte varint
+}
+
+func TestParseHugeLengthDoesNotPanic(t *testing.T) {
+	called := false
+	r := New(Bytes(1, func(v []byte) error {
+		called = true
+		return nil
+	}))
+
+	err := r.Parse(hugeLengthField)
+	if err == nil {
+		t.Fatal("expected error for oversized length-delimited field, got nil")
+	}
+	if called {
+		t.Fatal("callback must not fire for truncated field")
+	}
+}
+
+func TestReadHugeLengthDoesNotPanic(t *testing.T) {
+	called := false
+	r := New(
+		MaxSize(1024),
+		Bytes(1, func(v []byte) error {
+			called = true
+			return nil
+		}),
+	)
+
+	err := r.Read(bytes.NewReader(hugeLengthField), nil)
+	if err == nil {
+		t.Fatal("expected error for oversized length-delimited field, got nil")
+	}
+	if called {
+		t.Fatal("callback must not fire for truncated field")
+	}
+}
+
+func TestReadHugeLengthWithoutMaxSizeDoesNotPanic(t *testing.T) {
+	// Even with the default unlimited MaxSize, the int-overflow guard in
+	// readerLimit.bytes must reject a length that does not fit in int.
+	called := false
+	r := New(Bytes(1, func(v []byte) error {
+		called = true
+		return nil
+	}))
+
+	err := r.Read(bytes.NewReader(hugeLengthField), nil)
+	if err == nil {
+		t.Fatal("expected error for oversized length-delimited field, got nil")
+	}
+	if !errors.Is(err, ErrorInvalidMessage) && !errors.Is(err, ErrorTruncated) {
+		// Wrapped by wrapError; just check the tail contains the error message.
+		if err.Error() == "" {
+			t.Fatalf("expected non-empty error, got %v", err)
+		}
+	}
+	if called {
+		t.Fatal("callback must not fire for truncated field")
+	}
+}
+
+func TestParseOverlongVarint(t *testing.T) {
+	called := false
+	r := New(Varint(1, func(v uint64) error {
+		called = true
+		return nil
+	}))
+
+	err := r.Parse(overlongVarint)
+	if err == nil {
+		t.Fatal("expected error for varint longer than 10 bytes, got nil")
+	}
+	if called {
+		t.Fatal("callback must not fire for malformed varint")
+	}
+}
+
+func TestReadOverlongVarint(t *testing.T) {
+	called := false
+	r := New(Varint(1, func(v uint64) error {
+		called = true
+		return nil
+	}))
+
+	err := r.Read(bytes.NewReader(overlongVarint), nil)
+	if err == nil {
+		t.Fatal("expected error for varint longer than 10 bytes, got nil")
+	}
+	if called {
+		t.Fatal("callback must not fire for malformed varint")
+	}
+}
+
+func TestParseMaxSizeRejectsOversizedInput(t *testing.T) {
+	// field 1, varint value 1  -->  two bytes total
+	input := []byte{0x08, 0x01}
+
+	called := false
+	r := New(
+		MaxSize(1),
+		Varint(1, func(v uint64) error {
+			called = true
+			return nil
+		}),
+	)
+
+	if err := r.Parse(input); err == nil {
+		t.Fatal("expected MaxSize violation error, got nil")
+	}
+	if called {
+		t.Fatal("callback must not fire when input exceeds MaxSize")
+	}
+}
+
+func TestParseMaxSizeAllowsFittingInput(t *testing.T) {
+	input := []byte{0x08, 0x01}
+
+	var got uint64
+	r := New(
+		MaxSize(uint64(len(input))),
+		Varint(1, func(v uint64) error {
+			got = v
+			return nil
+		}),
+	)
+
+	if err := r.Parse(input); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != 1 {
+		t.Fatalf("callback got %d, want 1", got)
+	}
+}
+
+func TestReadMaxSizeCapsStream(t *testing.T) {
+	// A length-delimited field claiming 100 bytes of payload; MaxSize is 5,
+	// so the parser must refuse rather than try to read 100 bytes.
+	input := []byte{0x0a, 0x64} // field 1, wire type 2, length = 100
+
+	called := false
+	r := New(
+		MaxSize(5),
+		Bytes(1, func(v []byte) error {
+			called = true
+			return nil
+		}),
+	)
+
+	if err := r.Read(bytes.NewReader(input), nil); err == nil {
+		t.Fatal("expected error due to MaxSize, got nil")
+	}
+	if called {
+		t.Fatal("callback must not fire for oversized field")
+	}
+}
+
+// Ensure the 10-byte varint boundary is not off-by-one: a legitimate maximum
+// uint64 encoded in exactly 10 bytes must still decode successfully.
+func TestParseMaxLengthVarintStillWorks(t *testing.T) {
+	// uint64 max = 0xFFFFFFFFFFFFFFFF encoded as varint (10 bytes)
+	input := []byte{
+		0x08, // tag: field 1, wire type 0
+		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01,
+	}
+
+	var got uint64
+	r := New(Varint(1, func(v uint64) error {
+		got = v
+		return nil
+	}))
+
+	if err := r.Parse(input); err != nil {
+		t.Fatalf("unexpected error decoding max-length varint: %v", err)
+	}
+	if got != ^uint64(0) {
+		t.Fatalf("decoded %x, want %x", got, ^uint64(0))
+	}
+}
