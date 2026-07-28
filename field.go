@@ -5,7 +5,13 @@ import (
 	"unsafe"
 )
 
-// Bytes registers a callback for length-delimited (bytes/string) fields
+// Bytes registers a callback for length-delimited (bytes/string) fields.
+//
+// The []byte passed to the callback aliases the parser's input buffer and is
+// only valid for the duration of the call. If the callback needs to retain
+// the value, it must copy it (e.g. via bytes.Clone). Retaining the slice and
+// then mutating the source buffer, or calling Allocator.Reset on the arena
+// used by Read, will silently corrupt the retained slice.
 func Bytes(num int, f func([]byte) error) Option {
 	return func(p *RawPB) {
 		p.schema.setBytes(num, f)
@@ -49,14 +55,39 @@ func unsafeString(b []byte) string {
 	return *(*string)(unsafe.Pointer(&b))
 }
 
-// String registers a callback for string values from length-delimited fields.
-// Uses unsafe conversion from byte slice to avoid allocation.
-func String(num int, f func(string) error) Option {
+// UnsafeString registers a callback for string values from length-delimited
+// fields with zero allocation.
+//
+// The string handed to the callback shares memory with the parser's input:
+//   - For Parse, this is the []byte argument to Parse.
+//   - For Read, this is the buffer returned by the Allocator (which
+//     LinearAllocator recycles on Reset).
+//
+// The string is only valid for the duration of the callback. If the callback
+// stores it (e.g. into a struct field) and the caller then mutates the input
+// buffer or resets the allocator, the stored string will silently reflect
+// the overwritten bytes — Go's usual "strings are immutable" guarantee does
+// not hold here. To retain the value beyond the callback, copy it explicitly
+// (strings.Clone).
+func UnsafeString(num int, f func(string) error) Option {
 	return Bytes(num, func(b []byte) error {
 		if f == nil {
 			return nil
 		}
 		return f(unsafeString(b))
+	})
+}
+
+// CopyString registers a callback for string values from length-delimited
+// fields. Unlike UnsafeString, the string handed to the callback is a heap
+// copy of the field bytes and safely outlives the callback (and any
+// Allocator.Reset). Costs one allocation per call.
+func CopyString(num int, f func(string) error) Option {
+	return Bytes(num, func(b []byte) error {
+		if f == nil {
+			return nil
+		}
+		return f(string(b))
 	})
 }
 

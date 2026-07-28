@@ -64,7 +64,7 @@ func TestParse(t *testing.T) {
 	// @TODO check nan
 	// simple(t, 11, Double, math.NaN(), &msg.SimpleDouble, &msg)
 
-	simple(t, 12, String, "Hello world", &msg.SimpleString, &msg)
+	simple(t, 12, UnsafeString, "Hello world", &msg.SimpleString, &msg)
 
 	simple(t, 13, Bytes, []byte("Hello world"), &msg.SimpleBytes, &msg)
 
@@ -78,7 +78,7 @@ func TestParse(t *testing.T) {
 
 	repeated(t, 18, Uint32, []uint32{1, 43, 2, 123123}, &msg.RepeatedUint32, &msg)
 
-	repeated(t, 19, String, []string{"asde", "", "hello world"}, &msg.RepeatedString, &msg)
+	repeated(t, 19, UnsafeString, []string{"asde", "", "hello world"}, &msg.RepeatedString, &msg)
 
 	repeated(t, 20, Uint32, []uint32{1, 43, 2, 123123}, &msg.RepeatedPackedUint32, &msg)
 
@@ -90,7 +90,7 @@ func TestParse(t *testing.T) {
 	simple(t, 12313, Uint64, 123123, &msg.BigNumberVarint, &msg)
 	simple(t, 12314, Fixed32, 123123, &msg.BigNumberFixed32, &msg)
 	simple(t, 12315, Fixed64, 123123, &msg.BigNumberFixed64, &msg)
-	simple(t, 12316, String, "hello world", &msg.BigNumberString, &msg)
+	simple(t, 12316, UnsafeString, "hello world", &msg.BigNumberString, &msg)
 
 	// unknown fields
 
@@ -140,7 +140,7 @@ func TestParse(t *testing.T) {
 			msg.SimpleInt32 = 1
 			msg.SimpleString = "hello world"
 		},
-		String(12, func(s string) error { return nil }),
+		UnsafeString(12, func(s string) error { return nil }),
 	))
 
 	// nil callback
@@ -149,7 +149,7 @@ func TestParse(t *testing.T) {
 			msg.SimpleInt32 = 1
 			msg.SimpleString = "hello world"
 		},
-		String(12, nil),
+		UnsafeString(12, nil),
 	))
 
 }

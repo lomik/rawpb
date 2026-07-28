@@ -56,6 +56,41 @@ func TestReadHugeLengthDoesNotPanic(t *testing.T) {
 	}
 }
 
+// A length-delimited field with no registered callback and no UnknownBytes
+// handler takes the skip() path. Before the int64(n) overflow guard,
+// skip(2^63) silently returned nil, and the parser reported successful
+// parsing of a malformed message.
+func TestReadSkipHugeLengthIsNotSilentSuccess(t *testing.T) {
+	// field 5, wire type 2 (LEN), length = 1 << 63.
+	input := []byte{
+		0x2a,
+		0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01,
+	}
+
+	r := New() // no callbacks, no UnknownBytes -> skip() is invoked
+
+	err := r.Read(bytes.NewReader(input), nil)
+	if err == nil {
+		t.Fatal("expected error for oversized skip, got silent success")
+	}
+}
+
+// Same shape but via Bytes(num, nil) — hits skip() in the Read path via
+// the callbackTypeBytes branch with funcBytes == nil.
+func TestReadSkipHugeLengthViaNilBytesCallback(t *testing.T) {
+	input := []byte{
+		0x0a,
+		0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01,
+	}
+
+	r := New(Bytes(1, nil))
+
+	err := r.Read(bytes.NewReader(input), nil)
+	if err == nil {
+		t.Fatal("expected error for oversized skip via nil Bytes callback, got silent success")
+	}
+}
+
 func TestReadHugeLengthWithoutMaxSizeDoesNotPanic(t *testing.T) {
 	// Even with the default unlimited MaxSize, the int-overflow guard in
 	// readerLimit.bytes must reject a length that does not fit in int.
@@ -172,6 +207,35 @@ func TestReadMaxSizeCapsStream(t *testing.T) {
 	}
 	if called {
 		t.Fatal("callback must not fire for oversized field")
+	}
+}
+
+func TestCopyStringSurvivesInputMutation(t *testing.T) {
+	// field 12, wire type 2, length 5, payload "hello"
+	input := []byte{
+		0x62, 0x05,
+		'h', 'e', 'l', 'l', 'o',
+	}
+
+	var captured string
+	r := New(CopyString(12, func(s string) error {
+		captured = s
+		return nil
+	}))
+
+	if err := r.Parse(input); err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if captured != "hello" {
+		t.Fatalf("captured %q, want %q", captured, "hello")
+	}
+
+	// Overwrite the source buffer. A safe (copied) string must not change.
+	for i := 2; i < len(input); i++ {
+		input[i] = 'x'
+	}
+	if captured != "hello" {
+		t.Fatalf("CopyString did not copy: captured now %q after mutation", captured)
 	}
 }
 

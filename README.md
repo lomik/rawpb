@@ -49,11 +49,11 @@ r := New(
                 return nil
             }),
             End(func() error { return nil }),
-            String(1, func(v string) error { // Name
+            UnsafeString(1, func(v string) error { // Name
                 ts.Labels[len(ts.Labels)-1].Name = v
                 return nil
             }),
-            String(2, func(v string) error { // Value
+            UnsafeString(2, func(v string) error { // Value
                 ts.Labels[len(ts.Labels)-1].Value = v
                 return nil
             }),

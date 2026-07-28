@@ -102,6 +102,9 @@ func (r *readerLimit) skip(n uint64) error {
 	if n > r.limit {
 		return ErrorTruncated
 	}
+	if n > uint64(math.MaxInt64) {
+		return ErrorInvalidMessage
+	}
 	_, err := io.CopyN(io.Discard, r.w, int64(n))
 	r.limit -= n
 	return err
