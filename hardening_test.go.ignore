@@ -210,6 +210,73 @@ func TestReadMaxSizeCapsStream(t *testing.T) {
 	}
 }
 
+func TestParseRejectsFieldNumberZero(t *testing.T) {
+	// tag = 0x00: field number 0, wire type 0 (varint); then a varint value.
+	input := []byte{0x00, 0x00}
+
+	r := New(UnknownVarint(func(num int, v uint64) error {
+		t.Fatalf("unknown handler must not fire for field number 0 (got num=%d)", num)
+		return nil
+	}))
+
+	if err := r.Parse(input); err == nil {
+		t.Fatal("expected error for field number 0, got nil")
+	}
+}
+
+func TestReadRejectsFieldNumberZero(t *testing.T) {
+	input := []byte{0x00, 0x00}
+
+	r := New(UnknownVarint(func(num int, v uint64) error {
+		t.Fatalf("unknown handler must not fire for field number 0 (got num=%d)", num)
+		return nil
+	}))
+
+	if err := r.Read(bytes.NewReader(input), nil); err == nil {
+		t.Fatal("expected error for field number 0, got nil")
+	}
+}
+
+func TestParseRejectsFieldNumberAboveSpecMax(t *testing.T) {
+	// Encode a tag with field number = 2^29 (one past the max) and wire type 0.
+	// tag = (num << 3) | wt = (1<<29 << 3) | 0 = 1 << 32.
+	// Varint-encoded (5 bytes: 0x80 0x80 0x80 0x80 0x10).
+	input := []byte{0x80, 0x80, 0x80, 0x80, 0x10, 0x00}
+
+	r := New(UnknownVarint(func(num int, v uint64) error {
+		t.Fatalf("unknown handler must not fire for out-of-range field number (got num=%d)", num)
+		return nil
+	}))
+
+	if err := r.Parse(input); err == nil {
+		t.Fatal("expected error for field number > 2^29-1, got nil")
+	}
+}
+
+// The maximum legal field number (2^29 - 1) must still parse.
+func TestParseAcceptsMaxFieldNumber(t *testing.T) {
+	// num = 2^29 - 1 = 536870911, wire type 0.
+	// tag = ((1<<29 - 1) << 3) | 0 = 2^32 - 8 = 0xFFFFFFF8.
+	// Varint encoding of 0xFFFFFFF8 (5 bytes):
+	//   0xFFFFFFF8 = 11111111 11111111 11111111 11111000
+	//   groups of 7 (LSB first): 1111000 1111111 1111111 1111111 0001111
+	//   with continuation bits:   0xF8    0xFF    0xFF    0xFF    0x0F
+	input := []byte{0xf8, 0xff, 0xff, 0xff, 0x0f, 0x2a}
+
+	var got uint64
+	r := New(Varint(maxFieldNumber, func(v uint64) error {
+		got = v
+		return nil
+	}))
+
+	if err := r.Parse(input); err != nil {
+		t.Fatalf("unexpected error parsing max field number: %v", err)
+	}
+	if got != 42 {
+		t.Fatalf("callback got %d, want 42", got)
+	}
+}
+
 func TestCopyStringSurvivesInputMutation(t *testing.T) {
 	// field 12, wire type 2, length 5, payload "hello"
 	input := []byte{

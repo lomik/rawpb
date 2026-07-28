@@ -10,6 +10,10 @@ var ErrorTruncated = errors.New("message truncated")
 var ErrorInvalidMessage = errors.New("invalid message")
 var ErrorWrongWireType = errors.New("wrong wire type")
 
+// maxFieldNumber is the largest legal protobuf field number.
+// Per spec, field numbers are in the range [1, 2^29 - 1].
+const maxFieldNumber = (1 << 29) - 1
+
 // RawPB implements a low-level protocol buffer parser without code generation
 type RawPB struct {
 	beginFunc func() error
@@ -61,8 +65,11 @@ func (pb *RawPB) doRead(r *readerLimit) error {
 		if abort {
 			break
 		}
-		wt := tag % 8
+		wt := tag & 7
 		num := int(tag >> 3)
+		if num < 1 || num > maxFieldNumber {
+			return pb.wrapError(num, ErrorInvalidMessage)
+		}
 
 		switch wt {
 		case 0: // varint
@@ -238,8 +245,11 @@ func (pb *RawPB) Parse(body []byte) error {
 		if err != nil {
 			return err
 		}
-		wt := tag % 8
+		wt := tag & 7
 		num := int(tag >> 3)
+		if num < 1 || num > maxFieldNumber {
+			return pb.wrapError(num, ErrorInvalidMessage)
+		}
 
 		switch wt {
 		case 0: // varint
