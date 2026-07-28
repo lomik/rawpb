@@ -12,6 +12,12 @@ A lightweight Go library for reading and writing raw protobuf messages without g
 - Write protobuf messages
 - High‑performance zero‑allocation parsing
 
+## Limitations
+
+- Groups (wire types 3 and 4, `SGROUP`/`EGROUP`) are not supported. They were
+  deprecated in proto3 but still appear in some proto2 messages; encountering
+  them returns `ErrorWrongWireType`.
+
 ## Installation
 
 go get github.com/lomik/rawpb
