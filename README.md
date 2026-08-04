@@ -86,6 +86,84 @@ r := New(
 r.Parse(raw)
 ```
 
+## Pull decoder
+
+The callback API above builds a decoder from a schema tree; every field
+callback is stored in the parser and invoked during `Parse`. If you prefer
+straight-line code, `Decoder` exposes the same wire-format engine as a
+pull-based iterator:
+
+```golang
+var d rawpb.Decoder
+d.Reset(raw)
+for d.Next() {
+    if d.Num() != 1 { continue }          // top-level TimeSeries
+
+    ts.Labels = ts.Labels[:0]
+    ts.Samples = ts.Samples[:0]
+    tsD := d.Submessage()
+
+    for tsD.Next() {
+        switch tsD.Num() {
+        case 1: // Label
+            ts.Labels = append(ts.Labels, prompb.Label{})
+            lab := tsD.Submessage()
+            for lab.Next() {
+                switch lab.Num() {
+                case 1: ts.Labels[len(ts.Labels)-1].Name = lab.UnsafeString()
+                case 2: ts.Labels[len(ts.Labels)-1].Value = lab.UnsafeString()
+                }
+            }
+        case 2: // Sample
+            ts.Samples = append(ts.Samples, prompb.Sample{})
+            sam := tsD.Submessage()
+            for sam.Next() {
+                switch sam.Num() {
+                case 1: ts.Samples[len(ts.Samples)-1].Value = sam.Double()
+                case 2: ts.Samples[len(ts.Samples)-1].Timestamp = sam.Int64()
+                }
+            }
+        }
+    }
+}
+if err := d.Err(); err != nil { return err }
+```
+
+`Decoder` is a value type — declare it locally and it stays on the stack.
+`Submessage()` also returns a value, so nested loops need no allocation.
+Errors are sticky: check `d.Err()` after the loop. Wire-type mismatches
+(e.g. `Uint64()` on a length-delimited field) set `ErrorWrongWireType` and
+terminate iteration.
+
+Repeated scalar fields — packed (proto3 default) or unpacked — use the
+same accessor. Calling a scalar accessor (`Int32`, `Double`, `Fixed64`,
+...) on a length-delimited field auto-unpacks the payload: the call
+returns the first value, and each subsequent `Next()` yields the next
+packed value under the same field number. If the caller doesn't touch a
+LEN field with a scalar accessor, `Next()` moves straight to the next
+tag on its next call.
+
+```golang
+for d.Next() {
+    switch d.Num() {
+    case 3: xs = append(xs, d.Int32())     // packed OR unpacked
+    case 5: ys = append(ys, d.Double())
+    case 7: name = d.UnsafeString()        // LEN as string, no unpacking
+    }
+}
+```
+
+An empty packed field yields one iteration with a zero value (real-world
+encoders normally omit empty packed fields, so this rarely surfaces).
+
+Benchmarks on the same Prometheus `WriteRequest` fixture:
+
+```
+BenchmarkGogoUnmarshalWriteRequest   2465019 ns/op   3815806 B/op   35980 allocs/op
+BenchmarkRawpbParseWriteRequest       765138 ns/op         0 B/op       0 allocs/op
+BenchmarkRawpbDecoderWriteRequest     657991 ns/op         0 B/op       0 allocs/op
+```
+
 ## Write
 
 ```golang

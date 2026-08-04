@@ -12,6 +12,7 @@ link-test:
 	ln -f -s rawpb_all_test.go.ignore rawpb_all_test.go
 	ln -f -s writer_test.go.ignore writer_test.go
 	ln -f -s hardening_test.go.ignore hardening_test.go
+	ln -f -s decoder_test.go.ignore decoder_test.go
 	go mod tidy
 
 unlink-test:
@@ -21,6 +22,7 @@ unlink-test:
 	rm rawpb_all_test.go
 	rm writer_test.go
 	rm hardening_test.go
+	rm decoder_test.go
 	go mod tidy
 
 	

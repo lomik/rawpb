@@ -1,0 +1,702 @@
+package rawpb
+
+import (
+	"bytes"
+	"errors"
+	"math"
+	"testing"
+
+	"github.com/prometheus/prometheus/prompb"
+)
+
+// --- Basic wire type coverage ---
+
+func TestDecoderVarint(t *testing.T) {
+	// field 1 varint value 300 (0xAC 0x02)
+	input := []byte{0x08, 0xac, 0x02}
+
+	var d Decoder
+	d.Reset(input)
+	if !d.Next() {
+		t.Fatalf("Next: false; err=%v", d.Err())
+	}
+	if d.Num() != 1 || d.WireType() != WireVarint {
+		t.Fatalf("got num=%d wt=%d, want 1/0", d.Num(), d.WireType())
+	}
+	if v := d.Uint64(); v != 300 {
+		t.Fatalf("Uint64 = %d, want 300", v)
+	}
+	if d.Next() {
+		t.Fatal("Next: expected false at EOM")
+	}
+	if err := d.Err(); err != nil {
+		t.Fatalf("Err = %v, want nil", err)
+	}
+}
+
+func TestDecoderFixed32(t *testing.T) {
+	// field 2 (wire 5) fixed32 = 0x11223344
+	input := []byte{0x15, 0x44, 0x33, 0x22, 0x11}
+
+	var d Decoder
+	d.Reset(input)
+	if !d.Next() {
+		t.Fatalf("Next: false; err=%v", d.Err())
+	}
+	if got := d.Fixed32(); got != 0x11223344 {
+		t.Fatalf("Fixed32 = %x, want 0x11223344", got)
+	}
+}
+
+func TestDecoderFixed64(t *testing.T) {
+	// field 2 (wire 1) fixed64 = 0x1122334455667788
+	input := []byte{0x11, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11}
+
+	var d Decoder
+	d.Reset(input)
+	if !d.Next() {
+		t.Fatalf("Next: false; err=%v", d.Err())
+	}
+	if got := d.Fixed64(); got != 0x1122334455667788 {
+		t.Fatalf("Fixed64 = %x, want 0x1122334455667788", got)
+	}
+}
+
+func TestDecoderBytesAndStrings(t *testing.T) {
+	// field 1 LEN, length 5, "hello"
+	input := []byte{0x0a, 0x05, 'h', 'e', 'l', 'l', 'o'}
+
+	var d Decoder
+	d.Reset(input)
+	if !d.Next() {
+		t.Fatalf("Next: false; err=%v", d.Err())
+	}
+
+	if s := d.UnsafeString(); s != "hello" {
+		t.Fatalf("UnsafeString = %q", s)
+	}
+
+	// The unsafe view must alias the input.
+	if &d.Bytes()[0] != &input[2] {
+		t.Fatal("Bytes did not alias input buffer")
+	}
+
+	// Reset the decoder and verify CopyString survives input mutation.
+	d.Reset(input)
+	d.Next()
+	got := d.CopyString()
+	for i := 2; i < len(input); i++ {
+		input[i] = 'x'
+	}
+	if got != "hello" {
+		t.Fatalf("CopyString did not copy: got %q after mutation", got)
+	}
+}
+
+func TestDecoderZigzag(t *testing.T) {
+	// field 1 varint = 3 (encodes sint32 -2)
+	input := []byte{0x08, 0x03}
+
+	var d Decoder
+	d.Reset(input)
+	d.Next()
+	if got := d.Sint32(); got != -2 {
+		t.Fatalf("Sint32 = %d, want -2", got)
+	}
+}
+
+// --- Submessage traversal ---
+
+func TestDecoderSubmessage(t *testing.T) {
+	// Outer field 1 LEN, payload = inner message with:
+	//   inner field 1 varint = 42
+	//   inner field 2 LEN "hi"
+	inner := []byte{0x08, 0x2a, 0x12, 0x02, 'h', 'i'}
+	outer := append([]byte{0x0a, byte(len(inner))}, inner...)
+
+	var d Decoder
+	d.Reset(outer)
+	if !d.Next() {
+		t.Fatalf("outer Next: %v", d.Err())
+	}
+	sub := d.Submessage()
+
+	if !sub.Next() {
+		t.Fatalf("sub Next 1: %v", sub.Err())
+	}
+	if sub.Num() != 1 || sub.Uint64() != 42 {
+		t.Fatalf("inner field 1: num=%d v=%d", sub.Num(), sub.Uint64())
+	}
+	if !sub.Next() {
+		t.Fatalf("sub Next 2: %v", sub.Err())
+	}
+	if sub.Num() != 2 || sub.UnsafeString() != "hi" {
+		t.Fatalf("inner field 2: num=%d s=%q", sub.Num(), sub.UnsafeString())
+	}
+	if sub.Next() {
+		t.Fatal("sub Next 3: expected EOM")
+	}
+	if err := sub.Err(); err != nil {
+		t.Fatalf("sub Err = %v", err)
+	}
+}
+
+// --- Auto-skip: unread values are silently stepped over ---
+
+func TestDecoderAutoSkip(t *testing.T) {
+	// Three fields: varint 100, LEN "abc", fixed32 0xff.
+	input := []byte{
+		0x08, 0x64, // field 1 varint 100
+		0x12, 0x03, 'a', 'b', 'c', // field 2 LEN
+		0x1d, 0xff, 0x00, 0x00, 0x00, // field 3 fixed32
+	}
+
+	var d Decoder
+	d.Reset(input)
+
+	// Iterate without touching accessors: every Next should succeed.
+	nums := []int{}
+	for d.Next() {
+		nums = append(nums, d.Num())
+	}
+	if err := d.Err(); err != nil {
+		t.Fatalf("Err = %v", err)
+	}
+	if len(nums) != 3 || nums[0] != 1 || nums[1] != 2 || nums[2] != 3 {
+		t.Fatalf("got fields %v, want [1 2 3]", nums)
+	}
+}
+
+// --- Error handling ---
+
+func TestDecoderRejectsFieldZero(t *testing.T) {
+	var d Decoder
+	d.Reset([]byte{0x00, 0x00})
+	if d.Next() {
+		t.Fatal("Next: expected false for field 0")
+	}
+	if !errors.Is(d.Err(), ErrorInvalidMessage) {
+		t.Fatalf("Err = %v, want ErrorInvalidMessage", d.Err())
+	}
+}
+
+func TestDecoderRejectsOverlongVarint(t *testing.T) {
+	input := []byte{
+		0x08,
+		0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01,
+	}
+	var d Decoder
+	d.Reset(input)
+	if d.Next() {
+		t.Fatal("Next: expected false for overlong varint")
+	}
+	if !errors.Is(d.Err(), ErrorInvalidMessage) {
+		t.Fatalf("Err = %v, want ErrorInvalidMessage", d.Err())
+	}
+}
+
+func TestDecoderRejectsTruncatedLen(t *testing.T) {
+	// field 1 LEN, length claims 100, but only 4 payload bytes present.
+	input := []byte{0x0a, 0x64, 0x01, 0x02, 0x03, 0x04}
+	var d Decoder
+	d.Reset(input)
+	if d.Next() {
+		t.Fatal("Next: expected false for truncated LEN")
+	}
+	if !errors.Is(d.Err(), ErrorTruncated) {
+		t.Fatalf("Err = %v, want ErrorTruncated", d.Err())
+	}
+}
+
+func TestDecoderStickyWireTypeMismatch(t *testing.T) {
+	// field 1 varint 42 — calling a length-delimited accessor is invalid.
+	// (Scalar accessors on LEN are legal: they trigger packed auto-unpack.)
+	input := []byte{0x08, 0x2a}
+	var d Decoder
+	d.Reset(input)
+	d.Next()
+	// Wrong accessor: Bytes on a varint field.
+	if b := d.Bytes(); b != nil {
+		t.Fatalf("Bytes on varint = %v, want nil", b)
+	}
+	if !errors.Is(d.Err(), ErrorWrongWireType) {
+		t.Fatalf("Err = %v, want ErrorWrongWireType", d.Err())
+	}
+	// Sticky: subsequent Next must return false.
+	if d.Next() {
+		t.Fatal("Next after error: expected false")
+	}
+}
+
+// --- Reuse ---
+
+func TestDecoderResetClearsState(t *testing.T) {
+	var d Decoder
+	d.Reset([]byte{0x00}) // triggers ErrorInvalidMessage on Next
+	d.Next()
+	if d.Err() == nil {
+		t.Fatal("expected sticky error before Reset")
+	}
+	d.Reset([]byte{0x08, 0x2a}) // valid: field 1 varint 42
+	if !d.Next() {
+		t.Fatalf("Next after Reset: %v", d.Err())
+	}
+	if d.Uint64() != 42 {
+		t.Fatal("wrong value after Reset")
+	}
+	if d.Err() != nil {
+		t.Fatalf("Err after Reset = %v", d.Err())
+	}
+}
+
+// --- Zero-alloc sanity: constructing a Decoder must not escape ---
+
+func TestDecoderZeroAllocSimple(t *testing.T) {
+	input := []byte{0x08, 0x2a}
+	allocs := testing.AllocsPerRun(1000, func() {
+		var d Decoder
+		d.Reset(input)
+		for d.Next() {
+			_ = d.Uint64()
+		}
+	})
+	if allocs > 0 {
+		t.Fatalf("expected 0 allocs, got %g", allocs)
+	}
+}
+
+// --- Packed: transparent auto-unpack driven by scalar accessor ---
+
+func TestDecoderPackedInt32SameCallSiteAsUnpacked(t *testing.T) {
+	// Packed and unpacked encodings of the same logical data [1 2 3 4].
+	packed := []byte{0x1a, 0x04, 0x01, 0x02, 0x03, 0x04}
+	unpacked := []byte{0x18, 0x01, 0x18, 0x02, 0x18, 0x03, 0x18, 0x04}
+
+	for _, tc := range []struct {
+		name  string
+		input []byte
+	}{
+		{"packed", packed},
+		{"unpacked", unpacked},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var d Decoder
+			d.Reset(tc.input)
+
+			var xs []int32
+			for d.Next() {
+				if d.Num() == 3 {
+					xs = append(xs, d.Int32())
+				}
+			}
+			if err := d.Err(); err != nil {
+				t.Fatal(err)
+			}
+			want := []int32{1, 2, 3, 4}
+			if len(xs) != len(want) {
+				t.Fatalf("got %v, want %v", xs, want)
+			}
+			for i, v := range want {
+				if xs[i] != v {
+					t.Fatalf("got %v, want %v", xs, want)
+				}
+			}
+		})
+	}
+}
+
+func TestDecoderPackedNotTouchedSkipsToNextTag(t *testing.T) {
+	// Packed field 3 with 4 values, followed by field 4 varint 42.
+	// User's switch matches only field 4 — Next() must jump straight from
+	// the LEN tag to field 4's tag on the next iteration, NOT yield values.
+	input := []byte{
+		0x1a, 0x04, 0x01, 0x02, 0x03, 0x04,
+		0x20, 0x2a,
+	}
+	var d Decoder
+	d.Reset(input)
+
+	iters := 0
+	var got uint64
+	for d.Next() {
+		iters++
+		if d.Num() == 4 {
+			got = d.Uint64()
+		}
+	}
+	if err := d.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if iters != 2 {
+		t.Fatalf("expected 2 iterations (LEN skip + field 4), got %d", iters)
+	}
+	if got != 42 {
+		t.Fatalf("field 4 got %d, want 42", got)
+	}
+}
+
+func TestDecoderPackedDouble(t *testing.T) {
+	// field 3 packed [1.0, 2.0]
+	input := []byte{
+		0x1a, 0x10,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40,
+	}
+	var d Decoder
+	d.Reset(input)
+
+	var ys []float64
+	for d.Next() {
+		if d.Num() == 3 {
+			ys = append(ys, d.Double())
+		}
+	}
+	if err := d.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(ys) != 2 || ys[0] != 1.0 || ys[1] != 2.0 {
+		t.Fatalf("got %v", ys)
+	}
+}
+
+func TestDecoderPackedFloat(t *testing.T) {
+	// field 3 packed [1.0f, 2.0f]
+	input := []byte{
+		0x1a, 0x08,
+		0x00, 0x00, 0x80, 0x3f,
+		0x00, 0x00, 0x00, 0x40,
+	}
+	var d Decoder
+	d.Reset(input)
+	var ys []float32
+	for d.Next() {
+		if d.Num() == 3 {
+			ys = append(ys, d.Float())
+		}
+	}
+	if err := d.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(ys) != 2 || ys[0] != 1.0 || ys[1] != 2.0 {
+		t.Fatalf("got %v", ys)
+	}
+}
+
+func TestDecoderPackedSint32Zigzag(t *testing.T) {
+	// packed [0, -1, 1, -2, 2] → zigzag [0, 1, 2, 3, 4]
+	input := []byte{0x1a, 0x05, 0x00, 0x01, 0x02, 0x03, 0x04}
+	var d Decoder
+	d.Reset(input)
+	var xs []int32
+	for d.Next() {
+		if d.Num() == 3 {
+			xs = append(xs, d.Sint32())
+		}
+	}
+	if err := d.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := []int32{0, -1, 1, -2, 2}
+	if len(xs) != len(want) {
+		t.Fatalf("got %v, want %v", xs, want)
+	}
+	for i, v := range want {
+		if xs[i] != v {
+			t.Fatalf("got %v, want %v", xs, want)
+		}
+	}
+}
+
+func TestDecoderPackedMixedWithOtherFields(t *testing.T) {
+	// field 1 varint 10, field 3 packed [1 2 3], field 4 varint 20.
+	input := []byte{
+		0x08, 0x0a,
+		0x1a, 0x03, 0x01, 0x02, 0x03,
+		0x20, 0x14,
+	}
+	var d Decoder
+	d.Reset(input)
+
+	var events []int
+	for d.Next() {
+		switch d.Num() {
+		case 1, 4:
+			events = append(events, int(d.Uint64()))
+		case 3:
+			events = append(events, 100+int(d.Uint64()))
+		}
+	}
+	if err := d.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := []int{10, 101, 102, 103, 20}
+	if len(events) != len(want) {
+		t.Fatalf("got %v, want %v", events, want)
+	}
+	for i, v := range events {
+		if v != want[i] {
+			t.Fatalf("got %v, want %v", events, want)
+		}
+	}
+}
+
+func TestDecoderPackedFixed32MalformedLength(t *testing.T) {
+	// packed fixed32 field 3 with length 5 (not a multiple of 4).
+	input := []byte{0x1a, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05}
+
+	var d Decoder
+	d.Reset(input)
+	for d.Next() {
+		if d.Num() == 3 {
+			_ = d.Fixed32()
+		}
+	}
+	if !errors.Is(d.Err(), ErrorInvalidMessage) {
+		t.Fatalf("Err = %v, want ErrorInvalidMessage", d.Err())
+	}
+}
+
+func TestDecoderPackedTruncatedVarint(t *testing.T) {
+	// packed field 3, length claims 3 bytes, last is unterminated varint.
+	input := []byte{0x1a, 0x03, 0x01, 0x80, 0x80}
+
+	var d Decoder
+	d.Reset(input)
+	// First value 1.
+	if !d.Next() || d.Uint64() != 1 {
+		t.Fatalf("first value: err=%v", d.Err())
+	}
+	// Second attempt should detect the truncated varint.
+	if d.Next() {
+		t.Fatal("expected false on truncated packed varint")
+	}
+	if !errors.Is(d.Err(), ErrorTruncated) {
+		t.Fatalf("Err = %v, want ErrorTruncated", d.Err())
+	}
+}
+
+func TestDecoderPackedEmptyReturnsZeroValue(t *testing.T) {
+	// Empty packed field 3, then field 4 varint 42.
+	// Documented edge case: one phantom iteration, accessor returns zero.
+	input := []byte{0x1a, 0x00, 0x20, 0x2a}
+
+	var d Decoder
+	d.Reset(input)
+
+	var xs []int32
+	var other uint64
+	for d.Next() {
+		switch d.Num() {
+		case 3:
+			xs = append(xs, d.Int32())
+		case 4:
+			other = d.Uint64()
+		}
+	}
+	if err := d.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(xs) != 1 || xs[0] != 0 {
+		t.Fatalf("expected [0] phantom, got %v", xs)
+	}
+	if other != 42 {
+		t.Fatalf("field 4 got %d, want 42", other)
+	}
+}
+
+func TestDecoderPackedIdempotentAccessor(t *testing.T) {
+	// packed [10 20 30] — calling Int32() twice on same iteration returns
+	// the same value (does not advance).
+	input := []byte{0x1a, 0x03, 0x0a, 0x14, 0x1e}
+
+	var d Decoder
+	d.Reset(input)
+	if !d.Next() {
+		t.Fatal("first Next false")
+	}
+	v1 := d.Int32()
+	v2 := d.Int32()
+	if v1 != 10 || v2 != 10 {
+		t.Fatalf("idempotent accessor: got %d, %d; want 10, 10", v1, v2)
+	}
+	if !d.Next() {
+		t.Fatal("second Next false")
+	}
+	if v := d.Int32(); v != 20 {
+		t.Fatalf("second value = %d, want 20", v)
+	}
+}
+
+func TestDecoderPackedZeroAllocIteration(t *testing.T) {
+	input := []byte{0x1a, 0x04, 0x01, 0x02, 0x03, 0x04}
+	xs := make([]int32, 0, 16)
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		var d Decoder
+		d.Reset(input)
+		xs = xs[:0]
+		for d.Next() {
+			if d.Num() == 3 {
+				xs = append(xs, d.Int32())
+			}
+		}
+	})
+	if allocs > 0 {
+		t.Fatalf("expected 0 allocs, got %g", allocs)
+	}
+}
+
+// --- Fair-comparison benchmark: same fixture as BenchmarkRawpbParseWriteRequest ---
+
+func decodeWriteRequestPull(raw []byte, ts *prompb.TimeSeries) error {
+	var d Decoder
+	d.Reset(raw)
+	for d.Next() {
+		if d.Num() != 1 { // TimeSeries
+			continue
+		}
+		ts.Labels = ts.Labels[:0]
+		ts.Samples = ts.Samples[:0]
+
+		tsD := d.Submessage()
+		for tsD.Next() {
+			switch tsD.Num() {
+			case 1: // Label
+				ts.Labels = append(ts.Labels, prompb.Label{})
+				lab := tsD.Submessage()
+				for lab.Next() {
+					switch lab.Num() {
+					case 1:
+						ts.Labels[len(ts.Labels)-1].Name = lab.UnsafeString()
+					case 2:
+						ts.Labels[len(ts.Labels)-1].Value = lab.UnsafeString()
+					}
+				}
+				if err := lab.Err(); err != nil {
+					return err
+				}
+			case 2: // Sample
+				ts.Samples = append(ts.Samples, prompb.Sample{})
+				sam := tsD.Submessage()
+				for sam.Next() {
+					switch sam.Num() {
+					case 1:
+						ts.Samples[len(ts.Samples)-1].Value = sam.Double()
+					case 2:
+						ts.Samples[len(ts.Samples)-1].Timestamp = sam.Int64()
+					}
+				}
+				if err := sam.Err(); err != nil {
+					return err
+				}
+			}
+		}
+		if err := tsD.Err(); err != nil {
+			return err
+		}
+	}
+	return d.Err()
+}
+
+func BenchmarkRawpbDecoderWriteRequest(b *testing.B) {
+	raw := readFixture("34dd878af9d34cae46373dffa8df973ed94ab45be0ffa2fa0830bb1bb497ad90.gz")
+
+	var ts prompb.TimeSeries
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := decodeWriteRequestPull(raw, &ts); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// --- Sanity: decoded content matches gogo unmarshal, byte for byte ---
+
+func TestDecoderMatchesGogoOnWriteRequest(t *testing.T) {
+	raw := readFixture("34dd878af9d34cae46373dffa8df973ed94ab45be0ffa2fa0830bb1bb497ad90.gz")
+
+	// Ground truth via gogo.
+	var want prompb.WriteRequest
+	if err := want.Unmarshal(raw); err != nil {
+		t.Fatalf("gogo unmarshal: %v", err)
+	}
+
+	// Decode via pull decoder, accumulating one TimeSeries at a time.
+	var got prompb.WriteRequest
+	var d Decoder
+	d.Reset(raw)
+	for d.Next() {
+		if d.Num() != 1 {
+			continue
+		}
+		var ts prompb.TimeSeries
+		tsD := d.Submessage()
+		for tsD.Next() {
+			switch tsD.Num() {
+			case 1:
+				var lab prompb.Label
+				labD := tsD.Submessage()
+				for labD.Next() {
+					switch labD.Num() {
+					case 1:
+						lab.Name = labD.CopyString()
+					case 2:
+						lab.Value = labD.CopyString()
+					}
+				}
+				if err := labD.Err(); err != nil {
+					t.Fatal(err)
+				}
+				ts.Labels = append(ts.Labels, lab)
+			case 2:
+				var s prompb.Sample
+				sD := tsD.Submessage()
+				for sD.Next() {
+					switch sD.Num() {
+					case 1:
+						s.Value = sD.Double()
+					case 2:
+						s.Timestamp = sD.Int64()
+					}
+				}
+				if err := sD.Err(); err != nil {
+					t.Fatal(err)
+				}
+				ts.Samples = append(ts.Samples, s)
+			}
+		}
+		if err := tsD.Err(); err != nil {
+			t.Fatal(err)
+		}
+		got.Timeseries = append(got.Timeseries, ts)
+	}
+	if err := d.Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(got.Timeseries) != len(want.Timeseries) {
+		t.Fatalf("timeseries count: got %d, want %d", len(got.Timeseries), len(want.Timeseries))
+	}
+	for i := range want.Timeseries {
+		wg, gg := want.Timeseries[i], got.Timeseries[i]
+		if len(wg.Labels) != len(gg.Labels) || len(wg.Samples) != len(gg.Samples) {
+			t.Fatalf("ts %d shape mismatch", i)
+		}
+		for j := range wg.Labels {
+			if wg.Labels[j].Name != gg.Labels[j].Name || wg.Labels[j].Value != gg.Labels[j].Value {
+				t.Fatalf("ts %d label %d: got %+v want %+v", i, j, gg.Labels[j], wg.Labels[j])
+			}
+		}
+		for j := range wg.Samples {
+			gv, wv := gg.Samples[j].Value, wg.Samples[j].Value
+			valueEq := gv == wv || (math.IsNaN(gv) && math.IsNaN(wv))
+			if !valueEq || gg.Samples[j].Timestamp != wg.Samples[j].Timestamp {
+				t.Fatalf("ts %d sample %d: got %+v want %+v", i, j, gg.Samples[j], wg.Samples[j])
+			}
+		}
+	}
+}
+
+// silence unused-import when running only decoder tests in isolation
+var _ = bytes.NewReader
